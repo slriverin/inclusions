@@ -27,6 +27,8 @@ fields_data = ['ID_specimen', 'slice', 'incl_nb', 'x', 'y', 'area',
 fields_meta = ['ID_specimen', 'slice', 'filename', 'img_width', 'img_height',
                'img_area_mm2', 'x_c', 'y_c', 'r_outer', 'n_divis_x', 'n_divis_y', 'divis_area_mm2']
 
+
+#Basic I/O functions
 def get_data():
     try:
         meta = pd.read_hdf('db_incl.h5', 'meta', 'r')
@@ -46,6 +48,8 @@ def get_data():
 def save_data(meta, data):
     try:
         meta['slice'] = meta.slice.astype(int)
+        meta['n_divis_x'] = meta.n_divis_x.astype(int)
+        meta['n_divis_y'] = meta.n_divis_y.astype(int)
         for col in ['img_width', 'img_height', 'img_area_mm2', 'x_c', 'y_c', 'r_outer']:
             meta[col] = meta[col].astype(float)
 
@@ -69,6 +73,7 @@ def save_data(meta, data):
         print('Error writing data. Verify datasets.')
 
 
+#Data entry functions
 def new_image():
     print('Which specimen ID? Enter sequential number. <0> for new specimen.')
     print('Other entry does nothing.')
@@ -176,15 +181,6 @@ def new_image():
  
     save_data(meta, data)
 
-def ret_th(x, y, x_c, y_c):
-    xprime = x - x_c
-    yprime = y - y_c
-    theta = np.arctan(yprime/xprime)
-    if (xprime < 0):
-        theta = np.pi+theta
-    elif yprime < 0:
-        theta = 2*np.pi+theta
-    return theta
 
 def def_pol_coord():
     print('Which specimen ID? Enter sequential number. <0> for new specimen.')
@@ -318,27 +314,7 @@ def def_pol_coord():
         meta.loc[(meta.ID_specimen==ID_spec)&(meta.slice==slice), 'r_outer'] = r_outer
         save_data(meta, data)
 
-def print_stats():
-    meta, data = get_data()
-    print('List of specimens studied')
-    print('Spec.\tNb. of slices\tTotal area (mm^2)')
-    for index, row in meta.groupby('ID_specimen')\
-        .agg({'slice': 'nunique', 'img_area_mm2': 'sum'}).iterrows():
-            print('{:s}\t{:d}\t\t{:.1f}'.format(index, int(row.slice), 
-                                              row.img_area_mm2))
-    print('\nStats per image file')
-    df1 = data.groupby(['ID_specimen', 'slice'])\
-        .agg({'incl_nb': 'count', 'feret': 'max'})
-
-    df2 = meta.merge(df1, on=['ID_specimen', 'slice'])
-    df2=df2.sort_values(['ID_specimen', 'slice'])
-    
-    print('Spec.\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tFilename')
-    for index, row in df2.iterrows():
-        print('{:s}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:s}'.format(
-            row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
-            row.incl_nb/row.img_area_mm2, row.filename))
-        
+       
 def ID_incl():
     print('What mode? <1>: Largest ones (Area); <2>: Largest ones (Feret); <3>: Specific inclusion; <4>: By location, <5>: Review entries.')
     
@@ -427,7 +403,110 @@ def ID_incl():
             else:
                 cont=False
                 return
+
+
+def divide():
+    meta, data = get_data()
     
+    print('Choose specimen... enter sequential number')
+    print('Average dimensions, millimeters')
+    print('\nRectangular specimens')
+    print('\tSpec.\tWidth\tHeight\tArea\tDivisions\tArea per division')
+    df = meta.loc[meta.img_width > 1, meta.columns].groupby('ID_specimen').agg('mean')
+    
+    i = 1
+    dict_index = {}
+    
+    for index, row in df.iterrows():
+        if row.n_divis_x*row.n_divis_y == 0:
+            area_per_div = 0
+        else:
+            area_per_div = row.img_area_mm2/(row.n_divis_x*row.n_divis_y)
+        print('{:d}\t{:s}\t{:.2f}\t{:.2f}\t{:.2f}\t({:.0f}, {:.0f})\t\t{:.2f}'.format(i, index, row.img_width/1000, row.img_height/1000, row.img_area_mm2, 
+                row.n_divis_x, row.n_divis_y, area_per_div))
+        dict_index[i] = index
+        i += 1
+        
+                
+    print('\nCircular specimens')
+    print('\tSpec.\tRadius\t\tArea\tDivisions\tArea per division')     
+    df = meta.loc[meta.img_width.apply(lambda x: int(x)==0), meta.columns].groupby('ID_specimen').agg('mean')
+    for index, row in df.iterrows():
+        if row.n_divis_x == 0:
+            area_per_div = 0
+        else:
+            area_per_div = row.img_area_mm2/row.n_divis_x
+        print('{:d}\t{:s}\t{:.2f}\t\t{:.2f}\t{:.0f}\t\t{:.2f}'.format(i, index, row.img_height/1000, row.img_area_mm2, 
+                row.n_divis_x, area_per_div))
+        dict_index[i] = index
+        i += 1
+        
+    try:
+        spec = dict_index[int(input('\n... : '))]
+    except ValueError:
+        print('Please enter integer value')
+        return
+    except KeyError:
+        print('No such specimen')
+        return
+        
+    if meta.loc[meta.ID_specimen == spec, 'img_width'].mean() > 1:
+        #Rectangular sample
+        def get_div_rect(x, y, div_width, div_height, n_divis_x):
+            #Returns coordinates of the division: 0, 1, 2 ...
+            div_coord_x = x//div_width
+            div_coord_y = y//div_height
+            return div_coord_x + 1 + div_coord_y*3
+
+
+        n_divis_x = int(input('Divisions in x ... : '))
+        n_divis_y = int(input('Divisions in y ... : '))
+        if n_divis_x < 1 or n_divis_y < 1:
+            raise ValueError
+        
+        df =  meta.loc[meta.ID_specimen == spec, meta.columns]
+        df.loc[:, 'n_divis_x'] = n_divis_x
+        df.loc[:, 'n_divis_y'] = n_divis_y
+        df.loc[:, 'divis_area_mm2'] = df.img_area_mm2/(df.n_divis_x*df.n_divis_y)
+        
+        df2 = data.loc[data.ID_specimen == spec, data.columns]
+        df2 = df2.merge(df2.groupby(['ID_specimen', 'slice'])['x', 'y'].transform('min').rename(columns={'x': 'x_min', 'y': 'y_min'}), 
+                        on = ['ID_specimen', 'slice'])
+        df2 = df2.merge(df.loc[:, ['ID_specimen', 'slice', 'n_divis_x', 'n_divis_y', 'img_width', 'img_height']], on=['ID_specimen', 'slice'])
+        df2['div_width'] = df2.img_width/n_divis_x
+        df2['div_height'] = df2.img_height/n_divis_y
+        
+        df2.division = df2.apply(lambda row: get_div_rect(row.x-row.x_min, row.y-row.y_min, row.div_width, row.div_height, row.n_divis_x), axis=1)
+
+        meta.update(df)
+        data.update(df2)
+        
+        return meta, data
+        
+        
+    
+    
+#Analysis tools
+def print_stats():
+    meta, data = get_data()
+    print('List of specimens studied')
+    print('Spec.\tNb. of slices\tTotal area (mm^2)')
+    for index, row in meta.groupby('ID_specimen')\
+        .agg({'slice': 'nunique', 'img_area_mm2': 'sum'}).iterrows():
+            print('{:s}\t{:d}\t\t{:.1f}'.format(index, int(row.slice), 
+                                              row.img_area_mm2))
+    print('\nStats per image file')
+    df1 = data.groupby(['ID_specimen', 'slice'])\
+        .agg({'incl_nb': 'count', 'feret': 'max'})
+
+    df2 = meta.merge(df1, on=['ID_specimen', 'slice'])
+    df2=df2.sort_values(['ID_specimen', 'slice'])
+    
+    print('Spec.\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tFilename')
+    for index, row in df2.iterrows():
+        print('{:s}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:s}'.format(
+            row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
+            row.incl_nb/row.img_area_mm2, row.filename))
 
 def plot_prob(df, plot=False):
     df = df.loc[:, ['feret']].sort_values('feret').reset_index(drop=True)
@@ -497,10 +576,10 @@ def plot_morph(rem_artifacts = True, x = 'feret', y = 'sqr_area', xlabel = 'Fere
     fig = plt.figure(dpi=200)
     ax = fig.gca()
     
-    ax.plot(data.loc[data.incl_type == ''][x], data.loc[data.incl_type==''][y], 'g.', label = 'Unidentified')
-    ax.plot(data.loc[data.incl_type == '1'][x], data.loc[data.incl_type=='1'][y], 'ko', label = 'Spherical incl./void')
-    ax.plot(data.loc[data.incl_type == '2'][x], data.loc[data.incl_type=='2'][y], 'k^', label = 'Irregular incl.')
-    ax.plot(data.loc[data.incl_type == '3'][x], data.loc[data.incl_type=='3'][y], 'kx', label = 'Lack of fusion')
+    ax.plot(data.loc[data.incl_type == ''][x], data.loc[data.incl_type==''][y], color='gray', marker = '.', linestyle = 'none', label = 'Unidentified')
+    ax.plot(data.loc[data.incl_type == '1'][x], data.loc[data.incl_type=='1'][y], color='black', marker = 'x', linestyle = 'none', label = 'Spherical incl./void')
+    ax.plot(data.loc[data.incl_type == '2'][x], data.loc[data.incl_type=='2'][y], color= 'blue', marker = 'o', linestyle = 'none', label = 'Irregular incl.')
+    ax.plot(data.loc[data.incl_type == '3'][x], data.loc[data.incl_type=='3'][y], color = 'red', marker = '^' , linestyle = 'none', label = 'Lack of fusion')
     
     if rem_artifacts == False:
         ax.plot(data.loc[data.incl_type == '4'][x], data.loc[data.incl_type=='4'][y], 'ro', label = 'Scratch')
@@ -543,8 +622,7 @@ def MLE_sig_exp(Y, k):
 
     Parameters
     ----------
-    Y : Vector of floats
-        Vector of values on which to perform regression. Need not to be ordered.
+    Y : Vector of values on which to perform regression. Need not to be ordered.
     k : Size of the sample. Scalar or vector.
 
     Returns
@@ -572,6 +650,38 @@ def MLE_sig_exp(Y, k):
     
     return sigma_k
     
+    
+#Utilities    
+def ret_th(x, y, x_c, y_c):
+    """
+    Returns the azimut of polar coordinates, given cartesian coordinates relative to the origin.
+
+    Parameters
+    ----------
+    x, y:       Coordinates of the point of interest
+    x_c, y_c:   Coordinates of the origin   
+
+    Returns
+    -------
+    theta :     Azimutal coordinate (theta) of the point (x, y). 0 < theta < 2*pi
+    """
+    
+    #Obtains coordinates relative to the origin
+    xprime = x - x_c
+    yprime = y - y_c
+    
+    #Obtains the arctan, between -pi and pi
+    theta = np.arctan(yprime/xprime)
+    
+    #Adjusts theta to fit in the right quadrant
+    if (xprime < 0):
+        theta = np.pi+theta
+    elif yprime < 0:
+        theta = 2*np.pi+theta
+        
+    return theta
+    
+    
 def extract_data_Matteo(excel_sheet, csv_output):
     if excel_sheet[0:3] == 'CB2':
         skip = 10
@@ -584,8 +694,3 @@ def extract_data_Matteo(excel_sheet, csv_output):
     else:
         df = df.loc[:, ['ID', 'Area', 'X', 'Y', 'Circ.', 'Feret', 'FeretAngle', 'MinFeret', 'AR', 'Round', 'Solidity']]    
     df.to_csv(csv_output, index=False)
-    
-    
-    
-    
-    
