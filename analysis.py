@@ -96,8 +96,10 @@ def save_data(meta, data):
         for col in float_cols:
             data[col] = data[col].astype(float) 
         
+        #Removes any duplicates, keeping those with nonzero division if both zero and nonzero exist
         data = data.sort_values('division', ascending=False)
         data = data.drop_duplicates(subset = ['ID_specimen', 'slice', 'incl_nb'])
+        
         data = data.sort_values(['ID_specimen', 'slice', 'incl_nb'])\
             .reset_index(drop=True)
         
@@ -633,11 +635,14 @@ def divide():
             div_coord_y = int(y//div_height)
             return div_coord_x + 1 + div_coord_y*n_divis_x
 
-
-        n_divis_x = int(input('Divisions in x ... : '))
-        n_divis_y = int(input('Divisions in y ... : '))
-        if n_divis_x < 1 or n_divis_y < 1:
-            raise ValueError
+        try:
+            n_divis_x = int(input('Divisions in x ... : '))
+            n_divis_y = int(input('Divisions in y ... : '))
+            if n_divis_x < 1 or n_divis_y < 1:
+                raise ValueError
+        except ValueError:
+            print('Enter non-null positive integer')
+            return
         
         df = meta.loc[meta.ID_specimen == spec, meta.columns]
         df.loc[:, 'n_divis_x'] = n_divis_x
@@ -649,21 +654,45 @@ def divide():
                         left_index=True, right_index=True)
         df2 = df2.merge(df2.groupby(['ID_specimen', 'slice'])[['x', 'y']].transform('max').rename(columns={'x': 'x_max', 'y': 'y_max'}), 
                         left_index=True, right_index=True)
-        df2 = df2.merge(df.loc[:, ['ID_specimen', 'slice', 'n_divis_x', 'n_divis_y', 'img_width', 'img_height']], on=['ID_specimen', 'slice'])
+        df2 = df2.reset_index().merge(df.loc[:, ['ID_specimen', 'slice', 'n_divis_x', 'n_divis_y', 'img_width', 'img_height']], on=['ID_specimen', 'slice'])\
+            .set_index('index')
         df2.loc[:, 'div_width'] = (df2.x_max-df2.x_min)/n_divis_x*1.01
         df2.loc[:, 'div_height'] = (df2.y_max-df2.y_min)/n_divis_y*1.01
         
         df2.division = df2.apply(lambda row: get_div_rect(row.x-row.x_min, row.y-row.y_min, row.div_width, row.div_height, row.n_divis_x), axis=1)
-        
 
         meta.update(df)
         data.update(df2)
         
         save_data(meta, data)
         
+    else:
+        #Circular sample
+        try:
+            n_divis = int(input('Number of divisions ... : '))
+            if n_divis < 1:
+                raise ValueError
         
-    
-    
+        except ValueError:
+            print('Enter non-null positive integer')
+            return
+            
+        df = meta.loc[meta.ID_specimen == spec, meta.columns]
+        df.loc[:, 'n_divis_x'] = n_divis
+        df.loc[:, 'divis_area_mm2'] = df.img_area_mm2/(df.n_divis_x)
+        
+        df2 = data.loc[data.ID_specimen == spec, data.columns]
+        df2 = df2.reset_index().merge(df.loc[:, ['ID_specimen', 'slice', 'n_divis_x']], on=['ID_specimen', 'slice']).set_index('index')
+        df2.loc[:, 'div_angle'] = 2*np.pi/n_divis
+        
+        df2.division = df2.apply(lambda row: int(row.theta//row.div_angle)+1, axis=1)
+
+        meta.update(df)
+        data.update(df2)
+            
+        save_data(meta, data)
+        
+
 #Analysis tools
 def print_stats():
     """
