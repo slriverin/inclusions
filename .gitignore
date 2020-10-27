@@ -1,2 +1,4 @@
 *.h5
+db_incl.log
 __pycache__
+data

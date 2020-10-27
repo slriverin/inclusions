@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import os, sys
+import datetime
 
 #Configuration of Matplotlib grahps to use LaTeX formatting with siunitx library
 from matplotlib.ticker import FormatStrFormatter
@@ -53,6 +54,7 @@ def get_data():
         if ans == 'y':
             meta.to_hdf('db_incl.h5', 'meta')
             data.to_hdf('db_incl.h5', 'data')
+            logger('Created database.')
             
     return meta, data
 
@@ -110,6 +112,9 @@ def save_data(meta, data):
     except:
         print('Error writing data. Verify datasets.')
 
+def logger(text):
+    with open('db_incl.log', 'a+') as file:
+        file.write('{:s}:\t{:s}\n'.format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), text))
 
 #Data entry functions for interacting with user.
 def new_image():
@@ -137,60 +142,14 @@ def new_image():
 
     """
     
-    #Asks the user for the specimen ID. 
-    #The user is asked to choose from a list of existing specimens
-    print('Which specimen ID? Enter sequential number. <0> for new specimen.')
-    print('Other entry does nothing.')
-    print('Seq. nb\tID_specimen')
-    
-    #Lists the existing specimens
     meta, data = get_data()
-    specs = meta.ID_specimen.unique()
-    for i in range(len(specs)):
-        print('{:d}\t{:s}'.format(i+1, specs[i]))
-        
-    try:
-        ans = input('...: [0] ')
-        
-        #Default answer: New specimen
-        if ans == '':
-            i_spec = 0
-        else:
-            i_spec = int(ans)
-        
-        if i_spec == 0:
-            #New specimen
-            ID_spec = input('New sample ID? ...: ')
-            if ID_spec == '':
-                print('Invalid name')
-                return
-                
-        elif i_spec > len(specs):
-            #Invalid entry
-            print('No such sample')
-            return 
-            
-        else:
-            #Existing specimen
-            ID_spec = specs[i_spec-1]
-            
-    except ValueError:
-        #Invalid entry
+    
+    ID_spec = ask_sample(create=True)
+    if ID_spec == -1:
         return
-
-    try:
-        #Asks for the slice number. By default, adds a new slide.
-        slice_def = len(meta.loc[meta.ID_specimen==ID_spec, 'slice'])+1
-        ans = input('Which slice? ...: [{:d}] '.format(slice_def))
-        
-        #Default answer
-        if ans == '':
-            slice = slice_def
-        else:
-            slice = int(ans)
-            
-    except ValueError:
-        print('Must enter integer')
+    
+    slice = ask_slice(ID_spec, create = True)
+    if slice == -1:
         return
     
     #Asks user for the filename
@@ -199,7 +158,7 @@ def new_image():
     #Lists .csv files from which to choose
     print('Seq. nb\tID_specimen')
     list_csv = []
-    for file in os.listdir():
+    for file in os.listdir('data'):
         if file[-3:] == 'csv':
             list_csv.append(file)
     for i in range(len(list_csv)):
@@ -239,10 +198,11 @@ def new_image():
     except ValueError:
         print('Numerical value needed')
         return
-    
+
+    df_data = pd.read_csv(os.path.join('data', filename))         #Extracts data from .csv file    
+
+      
     try:
-        df_data = pd.read_csv(filename)         #Extracts data from .csv file
-        
         #Changes row header names
         df_data = df_data.rename(columns={' ': 'incl_nb', 'X': 'x', 'Y': 'y',
                     'Area': 'area', 'Feret': 'feret', 'MinFeret': 'min_feret',
@@ -254,8 +214,11 @@ def new_image():
         df_data['ID_specimen'] = ID_spec                    #Identifies specimen
         df_data['slice'] = slice                            #Identifies slice
         df_data['incl_type'] = ''                           #Leaves inclusion type unidentified
+        df_data['r'] = np.nan
+        df_data['theta'] = np.nan
+        df_data['division'] = 0
         df_data = df_data.loc[:, fields_data]               #Sets the headers properly
-        
+    
     except (KeyError, AttributeError):
         #Exits if any error in the format of the .csv file.
         print('Error reading .csv file')
@@ -265,12 +228,66 @@ def new_image():
     data = pd.concat([data, df_data])                                       #Updates the data
     
     meta = meta.loc[(meta.ID_specimen != ID_spec)|(meta.slice != slice)]    #Removes any existing metadata on the current specimen and slice
-    meta = meta.append({'ID_specimen': ID_spec, 'slice': slice, 
-                        'filename': filename, 'img_width': img_width,
-                        'img_height': img_height, 'img_area_mm2': img_area}, 
+    meta = meta.append({'ID_specimen': ID_spec, 'slice': slice, 'filename': filename, 'img_width': img_width, 'img_height': img_height, 
+                        'img_area_mm2': img_area, 'x_c': np.nan, 'y_c': np.nan, 'r_outer': np.nan, 'n_divis_x': 0, 'n_divis_y': 0, 'divis_area_mm2': np.nan}, 
                        ignore_index=True)                                   #Adds a row with the newly input metadata
  
     save_data(meta, data)   #Updates the database
+    logger('Imported new image: Sample {:s}, slice {:d}: {:s}; Dims=({:.3f}, {:.3f}) mm. Area {:.2f} mm2.'\
+        .format(ID_spec, slice, filename, img_width/1000, img_height/1000), img_area)
+
+def exclude():
+    """
+    Excludes a rectangular zone from the analysis.
+    Removes all the features contained in this rectangle from Data
+    Removes the corresponding area from the metadata.
+    
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    Nothing
+
+    """    
+
+    meta, data = get_data()
+    
+    ID_spec = ask_sample()
+    if ID_spec == -1:
+        return
+    
+    slice = ask_slice(ID_spec)
+    if slice == -1:
+        return
+
+    print('Enter bounding rectangle')
+    try:
+        xmin = float(input('x_min (microns) ... : '))
+        xmax = float(input('x_max (microns) ... : '))
+        ymin = float(input('y_min (microns) ... : '))
+        ymax = float(input('y_max (microns) ... : '))
+        
+        if xmax < xmin or ymax < ymin:
+            raise ValueError
+     
+    except ValueError:
+        print('Invalid entry')
+        return
+    
+    area = (xmax-xmin)*(ymax-ymin)
+    
+    df = data.loc[(data.ID_specimen==ID_spec)&(data.slice==slice), data.columns]
+    
+    drop_list = df.loc[(df.x > xmin)&(df.x < xmax)&(df.y > ymin)&(df.y < ymax)].index
+    
+    data.drop(drop_list, inplace=True)
+    meta.loc[(meta.ID_specimen==ID_spec)&(meta.slice==slice), 'img_area_mm2'] -= area/1e6
+    
+    save_data(meta, data)
+    logger('Excluded area in sample {:s}, slice {:d}: x in [{:.3f}, {:.3f}] mm, y in [{:.3f}, {:.3f}] mm. Area removed {:.2f} mm2.'\
+        .format(ID_spec, slice, xmin/1000, xmax/1000, ymin/1000, ymax/1000, area/1e6))
 
 
 def def_pol_coord():
@@ -298,50 +315,17 @@ def def_pol_coord():
 
     """
     
-    #Asks for the specimen number
-    print('Which specimen ID? Enter sequential number. <0> for new specimen.')
-    print('Other entry does nothing.')
-    
-    #Lists the specimens with circular cross-section.
-    print('Seq. nb\tID_specimen')
     meta, data = get_data()
-    specs = meta.loc[meta.img_width.apply(lambda x: int(x))==0].ID_specimen.unique()    #Condition img_width = 0: circular specimen
     
-    for i in range(len(specs)):
-        print('{:d}\t{:s}'.format(i+1, specs[i]))
-    try:
-        ans = input('...: [0] ')
-        if ans == '':
-            i_spec = 0
-        else:
-            i_spec = int(ans)
-            
-        if i_spec == 0 or i_spec > len(specs):
-            print('No such sample')
-            return 
-        else:
-            ID_spec = specs[i_spec-1]
-    except ValueError:
+    ID_spec = ask_sample()
+    if ID_spec == -1:
+        return
+    
+    slice = ask_slice(ID_spec)
+    if slice == -1:
         return
 
-    try:
-        #Asks the slice number from the existing ones.
-        slice_def = len(meta.loc[meta.ID_specimen==ID_spec, 'slice'])
-        ans = input('\nWhich slice? ...: [1-{:d}] '.format(slice_def))
-        
-        if ans == '':
-            raise ValueError
-        else:
-            slice = int(ans)
-            
-    except ValueError:
-        print('Must enter integer')
-        return
-        
-    if slice > slice_def or slice == 0:
-        print('No such slice')
-        return
-        
+       
     #Extracts existing metadata and data for the specified specimen and slice
     ser_meta = meta.loc[(meta.ID_specimen==ID_spec)&(meta.slice==slice)].iloc[0]
     df = data.loc[(data.ID_specimen==ID_spec)&(data.slice==slice), data.columns]
@@ -500,46 +484,19 @@ def ID_incl():
         elif mode ==2:
             colsort = 'feret'
         
-        #Asks specimen number
-        print('Which specimen ID? Enter sequential number. <0> for all specimens. ')
-        print('Seq. nb\tID_specimen\tNb. of slices')
         meta, data = get_data()
-        specs = meta.ID_specimen.unique()
-        for i in range(len(specs)):
-            print('{:d}\t\t{:s}\t\t{:d}'.format(i+1, specs[i], data.loc[data.ID_specimen==specs[i]].slice.max()))
-            
-        try:
-            i_spec = int(input('...: '))
-                
-            if i_spec == 0:
-                #All specimens
-                ID_spec = -1
-            elif i_spec > len(specs):
-                print('No such sample')
-                return 
-            else:
-                ID_spec = specs[i_spec-1]
-        except ValueError:
+        
+        ID_spec = ask_sample()
+        if ID_spec == -1:
             return
     
-        try:
-            #Asks for slice
-            ans = input('Which slice? <0> for all slices...: ')
-            slice = int(ans)
-                
-        except ValueError:
-            print('Must enter integer')
+        slice = ask_slice(ID_spec)
+        if slice == -1:
             return
-            
-        #Creates df, the reduced dataset
-        if ID_spec == -1:   #All specimens
-            df = data
-        elif slice == 0:    #All slices
-            df = data.loc[data.ID_specimen == ID_spec]
-        else:               #Specific specimen and slice
-            df = data.loc[(data.ID_specimen == ID_spec) & (data.slice == slice)]
+
+        df = data.loc[(data.ID_specimen == ID_spec) & (data.slice == slice)]
         
-        df = df.loc[df.incl_type == '']     #Keeps only indidentified inclusions
+        df = df.loc[df.incl_type == '']     #Keeps only unidentified inclusions
         
         cont = True
         while cont == True:     #Loops until user quits
@@ -567,6 +524,7 @@ def ID_incl():
                 #User made a choice, update database
                 data.loc[index_incl, 'incl_type'] = ans
                 save_data(meta, data)
+                logger('Manual inclusion ID. Sample {:s}, slide {:d}, inclusion {:d}: Type {:s}.'.format(ID_spec, slice, df.head(1).incl_nb.iloc[0], ans))
                 df = df.iloc[1:]    #Removes the top row so we can analyse the next one
                 
             elif ans == '':
@@ -882,6 +840,85 @@ def MLE_sig_exp(Y, k):
     
     
 #Utilities    
+def ask_sample(create = False, circ=False):
+    #Asks for the specimen number
+    print('Which specimen ID? Enter sequential number.')
+    if create==True:
+        print('<0>: New specimen')
+    print('Other entry does nothing.')
+    
+    #Lists the specimens with circular cross-section.
+    print('Seq. nb\tID_specimen')
+    meta, data = get_data()
+    if circ==True:
+        specs = meta.loc[meta.img_width.apply(lambda x: int(x))==0].ID_specimen.unique()    #Condition img_width = 0: circular specimen
+    else:
+        specs = meta.ID_specimen.unique()
+    
+    for i in range(len(specs)):
+        print('{:d}\t{:s}'.format(i+1, specs[i]))
+    try:
+        ans = input('...: [0] ')
+        if ans == '':
+            i_spec = 0
+        else:
+            i_spec = int(ans)
+            
+        if create==True:
+            if i_spec == 0:
+                #New specimen
+                ID_spec = input('New sample ID? ...: ')
+                if ID_spec == '':
+                    print('Invalid name')
+                    return -1
+                    
+                return ID_spec
+        else:
+            if i_spec == 0:
+                print('No such sample')
+                return -1           
+                
+        if i_spec > len(specs):
+            print('No such sample')
+            return -1
+        else:
+            return specs[i_spec-1]
+            
+    except ValueError:
+        return -1
+
+def ask_slice(ID_spec, create=False):
+    
+    meta, data = get_data()
+
+    try:
+        #Asks for the slice number. By default, adds a new slide.
+        slice_def = len(meta.loc[meta.ID_specimen==ID_spec, 'slice'])
+        if create==True:
+            slice_def += 1
+            
+        ans = input('\nWhich slice? [1-{:d}] ... : [{:d}] '.format(len(meta.loc[meta.ID_specimen==ID_spec, 'slice']), slice_def))
+        
+        #Default answer
+        if ans == '':
+            slice = slice_def
+        else:
+            slice = int(ans)
+     
+        if slice > slice_def:
+            print('No such slice')
+            return -1
+            
+        elif slice == 0 and create==False:
+            print('No such slice')
+            return -1
+            
+        return slice
+        
+    except ValueError:
+        print('Must enter integer')
+        return -1    
+
 def ret_th(x, y, x_c, y_c):
     """
     Returns the azimut of polar coordinates, given cartesian coordinates relative to the origin.
