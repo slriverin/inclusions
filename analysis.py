@@ -3,10 +3,13 @@
 #Commonly used libraries
 import pandas as pd
 import numpy as np
+from scipy.stats import gaussian_kde
 import matplotlib.pyplot as plt
 import math
 import os, sys
 import datetime
+from PIL import Image
+Image.MAX_IMAGE_PIXELS = 1e9
 
 #Configuration of Matplotlib grahps to use LaTeX formatting with siunitx library
 from matplotlib.ticker import FormatStrFormatter
@@ -234,7 +237,7 @@ def new_image():
  
     save_data(meta, data)   #Updates the database
     logger('Imported new image: Sample {:s}, slice {:d}: {:s}; Dims=({:.3f}, {:.3f}) mm. Area {:.2f} mm2.'\
-        .format(ID_spec, slice, filename, img_width/1000, img_height/1000), img_area)
+        .format(ID_spec, slice, filename, img_width/1000, img_height/1000, img_area))
 
 def exclude():
     """
@@ -277,6 +280,15 @@ def exclude():
         return
     
     area = (xmax-xmin)*(ymax-ymin)
+    
+    filename = meta.loc[(meta.ID_specimen == ID_spec) & (meta.slice == slice)].filename.iloc[0].replace('csv', 'jpg')
+    im = Image.open(os.path.join('data', filename))
+    im.crop((xmin, ymin, xmax, ymax)).show()
+    ans=input('Confirm exlusion? (y/n) ... : [n] ')
+    if ans == 'y':
+        pass
+    else:
+        return
     
     df = data.loc[(data.ID_specimen==ID_spec)&(data.slice==slice), data.columns]
     
@@ -430,7 +442,7 @@ def def_pol_coord():
         save_data(meta, data)
 
        
-def ID_incl():
+def ID_incl(display=True):
     """
     Assists user in visually identifying inclusions.
     
@@ -456,7 +468,7 @@ def ID_incl():
 
     Parameters
     ----------
-    None
+    display:    If TRUE, displays the inclusion to be classified
 
     Returns
     -------
@@ -498,6 +510,10 @@ def ID_incl():
         
         df = df.loc[df.incl_type == '']     #Keeps only unidentified inclusions
         
+        if display == True:
+            filename = meta.loc[(meta.ID_specimen == ID_spec) & (meta.slice == slice)].filename.iloc[0].replace('csv', 'jpg')
+            im = Image.open(os.path.join('data', filename))
+        
         cont = True
         while cont == True:     #Loops until user quits
             df = df.sort_values(by=colsort, ascending = False)  #Sort by appropriate size indicator (per mode)
@@ -505,8 +521,27 @@ def ID_incl():
             
             #Displays data on the feature to identify
             print('For defect... :')
-            print(df.head(1))
+            head = df.head(1)
+            print(head.loc[:, ['ID_specimen', 'slice', 'incl_nb', 'x', 'y', 'area', 'sqr_area', 'feret', 'min_feret', 'feret_angle', 'ar', 'incl_type']])
             
+            #Displays image of inclusions
+            if display == True and head.feret.iloc[0] < 500:
+                x = head.x.iloc[0]
+                y = head.y.iloc[0]
+                feret = head.feret.iloc[0]
+                feret_min = head.min_feret.iloc[0]
+                feret_angle = head.feret_angle.iloc[0]
+                
+                width = np.abs(np.max([feret*np.cos(feret_angle*np.pi/180), feret_min])*2)
+                height = np.abs(np.max([feret*np.sin(feret_angle*np.pi/180), feret_min])*2)
+                
+                xmin = x - width/2
+                xmax = x + width/2
+                ymin = y - height/2
+                ymax = y + height/2
+                
+                im.crop((xmin, ymin, xmax, ymax)).show()
+                
             #Asks user input
             print('Please identify inclusion type')
             print('<>: Next, leave unidentified')
@@ -696,6 +731,77 @@ def print_stats():
             row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
             row.incl_nb/row.img_area_mm2, row.filename))
 
+def dens_per_sample(samples = None):
+    
+    meta, data = get_data()
+    
+    if samples == None:
+        pass
+        
+    else:
+        data = data.loc[data.ID_specimen.apply(lambda x: x in samples)]
+        meta = meta.loc[meta.ID_specimen.apply(lambda x: x in samples)]
+        
+    meta = meta.merge(data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]\
+                        .groupby('ID_specimen')['incl_nb'].agg('count'),\
+                        left_on='ID_specimen', right_index=True)
+
+    x = np.arange(len(meta.ID_specimen.unique()))
+    y = meta.incl_nb/meta.img_area_mm2
+    tick_labels = meta.ID_specimen
+    
+    fig = plt.figure(dpi=200)
+    ax = fig.gca()
+    
+    ax.bar(x, y, tick_label = tick_labels)
+    ax.set_ylabel('Inclusion density (\si{\per\milli\metre\squared})')
+    
+    return fig
+    
+def dens_vs_size(samples = None, xlim = [0, 100], param='feret'):
+
+    meta, data = get_data()
+    
+    if samples == None:
+        pass
+        
+    else:
+        data = data.loc[data.ID_specimen.apply(lambda x: x in samples)]
+        meta = meta.loc[meta.ID_specimen.apply(lambda x: x in samples)]
+        
+    data = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    
+    data = data.merge(meta.loc[:, ['ID_specimen', 'img_area_mm2']], on='ID_specimen')
+    
+    meta = meta.merge(data.groupby('ID_specimen')['incl_nb'].agg('count'),\
+                    left_on='ID_specimen', right_index=True)
+    
+    x = np.linspace(data[param].min(), xlim[1], 1000)
+    
+    fig = plt.figure(dpi=200)
+    ax = fig.gca()
+    for index, row in meta.iterrows():
+        ID_spec = row.ID_specimen
+        df = data.loc[data.ID_specimen == ID_spec]
+        
+        density = gaussian_kde(np.log10(df[param]))
+        density.covariance_factor = lambda: 0.18
+        density._compute_covariance()
+        ax.semilogx(x, density(np.log10(x))*row.incl_nb/row.img_area_mm2, label = ID_spec)
+        
+    if param == 'feret':
+        ax.set_xlabel('Feret diameter (\si{\micro\metre})')
+    elif param == 'sqr_area':
+         ax.set_xlabel('Sqr. root area $\sqrt{A}$ (\si{\micro\metre})')       
+    ax.set_ylabel('Inclusion density (\si{\per\micro\metre\per\milli\metre\squared})')
+    ax.set_xlim(xlim)
+    ax.legend()
+    
+    return fig
+
+
+
+
 def plot_prob(df, plot=False):
     df = df.loc[:, ['feret']].sort_values('feret').reset_index(drop=True)
     df['i'] = df.index+1
@@ -781,25 +887,66 @@ def plot_morph(rem_artifacts = True, x = 'feret', y = 'sqr_area', xlabel = 'Fere
     
 
 def plot_dist():
+
+    meta, data = get_data()
+
+        
     bins = 10**np.linspace(0, 3, 31)
     x = 10**(np.linspace(0, 3, 31)[:-1]+0.05)
-    meta['area_mm2'] = meta.proc_img_width_um*meta.proc_img_height_um/1e6
-    A_BD, A_PD = meta.groupby('dir')['area_mm2'].agg('sum')
-    y_BD1 = plt.hist(BD1.Feret, bins=bins)[0]/(A_BD/2)
-    y_BD2 = plt.hist(BD2.Feret, bins=bins)[0]/(A_BD/2)
-    y_PD1 = plt.hist(PD1.Feret, bins=bins)[0]/(A_PD/2)
-    y_PD2 = plt.hist(PD2.Feret, bins=bins)[0]/(A_PD/2)
+
+    fig = plt.figure(dpi=200)
+    ax = fig.gca()
+
+    #y1 = plt.hist(data.feret, bins=bins)[0]
+    ax.hist(data.loc[(data.incl_type=='5')&(data.feret<100)].feret)[0]
+
+
+    #ax.loglog(x, y1, marker='.', label = 'Total')
+    #ax.hist(x, y2, marker='.', label = 'Dust')
+
+    ax.set_xlabel('Feret diameter, (\si{\micro\metre})')
+    ax.set_ylabel('Count')
+    ax.legend()
+    return fig
+    
+def plot_qod(df=0):
+    """
+    Estimates the quality of the data histogram of ratio of artifacts on total observations.
+
+    Parameters
+    ----------
+    Y : Vector of values on which to perform regression. Need not to be ordered.
+    k : Size of the sample. Scalar or vector.
+
+    Returns
+    -------
+    sigma_k : MLE estimate of distribution parameter. Returns scalar or vector
+              depending of k.
+
+    """    
+    
+    if df == 0:
+        meta, data = get_data()
+    else:
+        data = df
+   
+    
+    bins = 10**np.linspace(0, 3, 31)
     
     fig = plt.figure(dpi=200)
     ax = fig.gca()
-    ax.semilogx(x, y_BD1, label = 'BD, slice 1', marker='.')
-    ax.semilogx(x, y_BD2, label = 'BD, slice 2', marker='.')
-    ax.semilogx(x, y_PD1, label = 'PD, slice 1', marker='.')
-    ax.semilogx(x, y_PD2, label = 'PD, slice 2', marker='.')
-    ax.set_xlabel('Feret diameter, (\si{\micro\metre})')
-    ax.set_ylabel('Density, \si{\per\milli\metre\squared}')
+    
+    df_ok = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    df_notok = data.loc[data.incl_type.apply(lambda x: x in ['4', '5', '6'])]
+    
+    plt.hist([df_ok.feret, df_notok.feret], bins, stacked=True, log=True, color = ['blue', 'gray'], label = ['OK or unknown', 'Artifacts'])
+    
+    ax.set_xlabel('Feret diameter (\si{micro\metre})')
+    ax.set_ylabel('Density')
     ax.legend()
     return fig
+    
+
 
 def MLE_sig_exp(Y, k):
     """
