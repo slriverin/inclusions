@@ -238,6 +238,20 @@ def new_image():
     save_data(meta, data)   #Updates the database
     logger('Imported new image: Sample {:s}, slice {:d}: {:s}; Dims=({:.3f}, {:.3f}) mm. Area {:.2f} mm2.'\
         .format(ID_spec, slice, filename, img_width/1000, img_height/1000, img_area))
+        
+def remove_image(ID_specimen, slice=1):
+    meta, data = get_data()
+
+    n_pts = len(data.loc[(data.ID_specimen == ID_specimen)&(data.slice == slice)])
+    
+    meta = meta.loc[(meta.ID_specimen != ID_specimen)|(meta.slice != slice)]   
+    data = data.loc[(data.ID_specimen != ID_specimen)|(data.slice != slice)]
+    
+    ans = input('Remove 1 record in meta and {:d} in data? (y/n) ... : [n] '.format(n_pts))
+    
+    if ans == 'y':
+        save_data(meta, data)
+        logger('Removed slice {:d} of specimen {:s}.'.format(slice, ID_specimen))
 
 def exclude():
     """
@@ -687,7 +701,7 @@ def divide():
         
 
 #Analysis tools
-def print_stats(ret=False):
+def print_stats(ret=False, exclude_porosity = True):
     """
     Displays stats per specimen and slice.
     
@@ -718,7 +732,13 @@ def print_stats(ret=False):
             print('{:s}\t{:d}\t\t{:.1f}'.format(index, int(row.slice), 
                                               row.img_area_mm2))
     print('\nStats per image file')
-    df1 = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]\
+    
+    if exclude_porosity == True:
+        list_excl = ['3', '4', '5', '6', '7']
+    else:
+        list_excl = ['4', '5', '6', '7']
+    
+    df1 = data.loc[data.incl_type.apply(lambda x: x not in list_excl)]\
         .groupby(['ID_specimen', 'slice'])\
         .agg({'incl_nb': 'count', 'feret': 'max', 'area': 'sum'})
 
