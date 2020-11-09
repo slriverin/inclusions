@@ -457,12 +457,12 @@ def ID_incl(display=True):
     
     Inclusion types (field <incl_type>)
     ---------------
-        '1':    Spherical inclusion or void
-        '2':    Irregular inclusion
-        '3':    Lack of fusion
+        '1':    Unidentified microstructural feature
+        '2':    Inclusion
+        '3':    Shrinkage porosity
         '4':    Scratch
         '5':    Dust
-        '6':    Unknown or other artifact
+        '6':    Other artifact
         '7':    Out of bounds
         '':     Empty field: not identified yet
 
@@ -532,8 +532,8 @@ def ID_incl(display=True):
                 feret_min = head.min_feret.iloc[0]
                 feret_angle = head.feret_angle.iloc[0]
                 
-                width = np.abs(np.max([feret*np.cos(feret_angle*np.pi/180), feret_min])*2)
-                height = np.abs(np.max([feret*np.sin(feret_angle*np.pi/180), feret_min])*2)
+                width = np.max([np.abs(feret*np.cos(feret_angle*np.pi/180)), feret_min])*2
+                height = np.max([np.abs(feret*np.sin(feret_angle*np.pi/180)), feret_min])*2
                 
                 xmin = x - width/2
                 xmax = x + width/2
@@ -545,12 +545,12 @@ def ID_incl(display=True):
             #Asks user input
             print('Please identify inclusion type')
             print('<>: Next, leave unidentified')
-            print('<1>: Inclusion (spherical) or spherical void')
-            print('<2>: Inclusion (irregular)')
-            print('<3>: Lack of fusion')
+            print('<1>: Unidentified microstructural feature')
+            print('<2>: Inclusion')
+            print('<3>: Shrinkage porosity')
             print('<4>: Scratch')
             print('<5>: Dust')
-            print('<6>: Unknown or other artifact')
+            print('<6>: Other artifact')
             print('<7>: Out of bounds')
             print('<x> or other entry: Quit')
             ans=input('...: ')
@@ -687,7 +687,7 @@ def divide():
         
 
 #Analysis tools
-def print_stats():
+def print_stats(ret=False):
     """
     Displays stats per specimen and slice.
     
@@ -720,18 +720,37 @@ def print_stats():
     print('\nStats per image file')
     df1 = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]\
         .groupby(['ID_specimen', 'slice'])\
-        .agg({'incl_nb': 'count', 'feret': 'max'})
+        .agg({'incl_nb': 'count', 'feret': 'max', 'area': 'sum'})
 
     df2 = meta.merge(df1, on=['ID_specimen', 'slice'])
     df2=df2.sort_values(['ID_specimen', 'slice'])
     
-    print('Spec.\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tFilename')
+    print('Spec.\t\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tIncl. area fraction x1e3\tFilename')
     for index, row in df2.iterrows():
-        print('{:s}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:s}'.format(
+        print('{:<12}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:.2f}\t\t\t\t{:s}'.format(
             row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
-            row.incl_nb/row.img_area_mm2, row.filename))
+            row.incl_nb/row.img_area_mm2, row.area/row.img_area_mm2/1e3,row.filename))
+            
+    if ret==True:
+        return df2
+    
+def export_stats(filename = 'stats.xlsx', samples = None):
+    df = print_stats(True)\
+        .loc[:, ['ID_specimen', 'filename', 'img_area_mm2', 'incl_nb', 'area']]\
+        .sort_index()
+    
+    if samples != None:
+        df = df.loc[df.ID_specimen.apply(lambda x: x in samples)]
+        
+    df.area = df.area/1e6
+    df = df.rename(columns={'area': 'total_incl_area_mm2'})
+    
+    df['incl_per_mm2'] = df.incl_nb/df.img_area_mm2
+    df['incl_area_fract'] = df.total_incl_area_mm2/df.img_area_mm2
+    
+    df.to_excel(filename, index=False)
 
-def dens_per_sample(samples = None):
+def dens_per_sample(samples = None, exclude_porosity = True):
     
     meta, data = get_data()
     
@@ -741,24 +760,72 @@ def dens_per_sample(samples = None):
     else:
         data = data.loc[data.ID_specimen.apply(lambda x: x in samples)]
         meta = meta.loc[meta.ID_specimen.apply(lambda x: x in samples)]
-        
-    meta = meta.merge(data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]\
-                        .groupby('ID_specimen')['incl_nb'].agg('count'),\
-                        left_on='ID_specimen', right_index=True)
+    
+    data = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    if exclude_porosity == True:
+        data = data.loc[data.incl_type.apply(lambda x: x != '3')]
+    
+    meta = meta.merge(data.groupby(['ID_specimen']).agg({'incl_nb': 'count', 'area': 'sum'}),\
+                        left_on='ID_specimen', right_index=True)#.set_index('ID_specimen')
+                        
 
-    x = np.arange(len(meta.ID_specimen.unique()))
-    y = meta.incl_nb/meta.img_area_mm2
-    tick_labels = meta.ID_specimen
+    #x = np.arange(len(meta.ID_specimen.unique()))
+    y1 = meta.incl_nb/meta.img_area_mm2
+    y2 = meta.area/meta.img_area_mm2/1e3
+
     
     fig = plt.figure(dpi=200)
     ax = fig.gca()
-    
-    ax.bar(x, y, tick_label = tick_labels)
+    ax2 = ax.twinx()
+   
+    y1.plot(kind='bar', ax = ax, width = 0.4, position = 1, color = 'blue')
+    ax.bar([], [], fillcolor = 'red')
+    y2.plot(kind='bar', ax = ax2, width = 0.4, position = 0, color = 'red')
+    ax.set_xticklabels(meta.ID_specimen)
     ax.set_ylabel('Inclusion density (\si{\per\milli\metre\squared})')
+    ax2.set_ylabel(r'Inclusion area density ($\times 10^3$ \si{\milli\metre\per\milli\metre})')
+    ax.set_xlim([-0.5, len(meta)-0.5])
+    
+    colors = {'Inclusion count': 'blue', 'Inclusion area': 'red'}
+    labels = list(colors.keys())
+    handles = [plt.Rectangle((0,0), 1, 1, color = colors[label]) for label in labels]
+    ax.legend(handles, labels, loc= 'upper center', bbox_to_anchor=(0.5, 1.15), ncol=2)
+    
+    plt.gcf().subplots_adjust(bottom=0.30)
     
     return fig
+
+def get_dens(sample, param = 'feret', exclude_porosity = True, xlim = [0, 100], cov_fact = 0.18, weighted = False):
+    meta, data = get_data()
     
-def dens_vs_size(samples = None, xlim = [0, 100], param='feret'):
+    data = data.loc[data.ID_specimen == sample]
+    meta = meta.loc[meta.ID_specimen == sample]
+    
+    data = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    if exclude_porosity == True:
+        data = data.loc[data.incl_type.apply(lambda x: x != '3')]
+        
+    data = data.merge(meta.loc[:, ['ID_specimen', 'img_area_mm2']], on='ID_specimen')
+    
+    meta = meta.merge(data.groupby('ID_specimen')['incl_nb'].agg('count'),\
+                    left_on='ID_specimen', right_index=True)
+    
+    x = np.linspace(xlim[0], xlim[1], 1000)    
+
+    if weighted == False:        
+        density = gaussian_kde(np.log10(data[param]))
+        density.covariance_factor = lambda: cov_fact
+        density._compute_covariance()
+        y = density(np.log10(x))*meta.incl_nb.iloc[0]/meta.img_area_mm2.iloc[0]
+    else:
+        density = gaussian_kde(np.log10(data[param]), weights = data.area)
+        density.covariance_factor = lambda: 0.18
+        density._compute_covariance()
+        y = density(np.log10(x))*data.area.sum()/meta.img_area_mm2.iloc[0]
+    
+    return x, y
+    
+def dens_vs_size(samples = None, xlim = [0, 100], param='feret', exclude_porosity = True, weighted = False):
 
     meta, data = get_data()
     
@@ -770,6 +837,8 @@ def dens_vs_size(samples = None, xlim = [0, 100], param='feret'):
         meta = meta.loc[meta.ID_specimen.apply(lambda x: x in samples)]
         
     data = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    if exclude_porosity == True:
+        data = data.loc[data.incl_type.apply(lambda x: x != '3')]
     
     data = data.merge(meta.loc[:, ['ID_specimen', 'img_area_mm2']], on='ID_specimen')
     
@@ -784,16 +853,26 @@ def dens_vs_size(samples = None, xlim = [0, 100], param='feret'):
         ID_spec = row.ID_specimen
         df = data.loc[data.ID_specimen == ID_spec]
         
-        density = gaussian_kde(np.log10(df[param]))
-        density.covariance_factor = lambda: 0.18
-        density._compute_covariance()
-        ax.semilogx(x, density(np.log10(x))*row.incl_nb/row.img_area_mm2, label = ID_spec)
+        if weighted == False:
+            density = gaussian_kde(np.log10(df[param]))
+            density.covariance_factor = lambda: 0.18
+            density._compute_covariance()
+            ax.semilogx(x, density(np.log10(x))*row.incl_nb/row.img_area_mm2, label = ID_spec)
+        else:
+            density = gaussian_kde(np.log10(df[param]), weights = df.area)
+            density.covariance_factor = lambda: 0.18
+            density._compute_covariance()
+            ax.semilogx(x, density(np.log10(x))*df.area.sum()/row.img_area_mm2, label = ID_spec)
         
     if param == 'feret':
         ax.set_xlabel('Feret diameter (\si{\micro\metre})')
     elif param == 'sqr_area':
-         ax.set_xlabel('Sqr. root area $\sqrt{A}$ (\si{\micro\metre})')       
-    ax.set_ylabel('Inclusion density (\si{\per\micro\metre\per\milli\metre\squared})')
+        ax.set_xlabel('Sqr. root area $\sqrt{A}$ (\si{\micro\metre})')       
+        
+    if weighted == False:
+        ax.set_ylabel('Inclusion count density (\si{\per\micro\metre\per\milli\metre\squared})')
+    else:
+        ax.set_ylabel('Inclusion area density (\si{\per\micro\metre \micro\metre\squared\per\milli\metre\squared})')
     ax.set_xlim(xlim)
     ax.legend()
     
