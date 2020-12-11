@@ -17,15 +17,18 @@ bars = {'2019C': [1], '2020C': [1, 2], '2019V': [1], '2020V': [2, 6, 7, 8, 9]}
 cuts = [1, 2]
 
 ht_samples = []
+ac_samples = []
 for heat in heats:
     for bar in bars[heat]:
         for cut in cuts:
             ht_samples.append('{:s}-{:d} {:d}ht'.format(heat, bar, cut))
+            ac_samples.append('{:s}-{:d} {:d}ac'.format(heat, bar, cut))
 
 
 #Density of inclusion per sample            
 fig1 = analysis.dens_per_sample(commercial_samples)
 fig2 = analysis.dens_per_sample(ht_samples)
+fig2b = analysis.dens_per_sample(ac_samples)
 
 #Feret diam per sample
 fig3, ax = plt.subplots(3, 3)
@@ -41,6 +44,10 @@ for heat in heats:
         samples = []
         for cut in cuts:
             sample = bar_ID + ' {:d}ht'.format(cut)
+            x, y = analysis.get_dens(sample, xlim=xlim)
+            ax[i, j].semilogx(x, y, label = '{:d}ht'.format(cut))
+            
+            sample = bar_ID + ' {:d}ac'.format(cut)
             x, y = analysis.get_dens(sample, xlim=xlim)
             ax[i, j].semilogx(x, y, label = '{:d}ht'.format(cut))
             
