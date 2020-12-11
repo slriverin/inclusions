@@ -2,5 +2,8 @@
 db_incl.log
 __pycache__
 data
-backup
+*backup*
 *.xlsx
+images
+tile_data.csv
+*.zip
