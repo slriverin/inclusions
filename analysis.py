@@ -11,6 +11,9 @@ import datetime
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = 1e9
 
+import tensorflow as tf
+from tensorflow import keras
+
 #Configuration of Matplotlib grahps to use LaTeX formatting with siunitx library
 from matplotlib.ticker import FormatStrFormatter
 import matplotlib as mpl
@@ -490,6 +493,13 @@ def ID_incl(display=True):
 
     """
     
+    with open('model_incl_01.json', 'r') as json_file:
+        model_json = json_file.read()
+    
+    model = keras.models.model_from_json(model_json)
+    model.load_weights('model_incl_01.h5')
+    
+    
     #Asks for the mode. Default value: Mode 1.
     print('What mode? <1>: Largest ones (Area); <2>: Largest ones (Feret); <3>: Specific inclusion; <4>: By location, <5>: Review entries.')
     
@@ -554,7 +564,16 @@ def ID_incl(display=True):
                 ymin = y - height/2
                 ymax = y + height/2
                 
-                im.crop((xmin, ymin, xmax, ymax)).show()
+                imcrop = im.crop((xmin, ymin, xmax, ymax))
+                imcrop.show()
+                
+                img = imcrop.resize(size=(180, 180))
+                img_array = keras.preprocessing.image.img_to_array(img)
+                img_array = tf.expand_dims(img_array, 0)
+            
+                pred = model.predict(img_array)
+            
+                print('--\nThis image is {:.2f} percent inclusion'.format(100-100*pred[0][0]))
                 
             #Asks user input
             print('Please identify inclusion type')
@@ -567,6 +586,8 @@ def ID_incl(display=True):
             print('<6>: Other artifact')
             print('<7>: Out of bounds')
             print('<x> or other entry: Quit')
+           
+            
             ans=input('...: ')
             
             if ans in ['1', '2', '3', '4', '5', '6', '7']:
