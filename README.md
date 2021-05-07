@@ -32,7 +32,24 @@ The workflows below are being or will be developed for data analysis, and are at
 * Pitting analysis: An interesting application of this program is the comparison of the same sample before and after pitting. This could allow identification and counting of pits.
 
 ## Data description
+The data is stored in tabular format. The following describes the fields in the tables used in this program
 
 ### Inclusion data files
+
+The following applies to .csv files to be imported in the database. It is important to have the right column headers (case sensitive). See [ImageJ user guide](https://imagej.nih.gov/ij/docs/guide/146-30.html#toc-Subsection-30.2) for more info on shape descriptors.
+
+Column header | Data type   | Description
+--- | --- | ---
+(blank) |Integer  |Index of feature/inclusion
+X, Y  |Float  |Coordinates of feature (µm)
+Area  |Float  |Area of feature (µm^2)
+Feret |Float  |Feret diameter (longest distance between 2 points on the boundary) (µm)
+MinFeret|Float|Minimum distance between 2 points on the boundary
+FeretAngle|Float|Angle of 0 to 180° between feret diameter and a horizontal line (°)
+Circ.|Float|Circularity. A value of 1.0 for a perfect circle, and close to zero if very elongated
+AR|Float|Aspect ratio. Ratio of max to min axes of an ellipse fitted to the contour of the feature
+Round|Float|Roundness. Inverse of aspect ratio
+Solidity|Float|Indicator of convexity. Ratio of area over convex area.
+
 
 ### H5 database
