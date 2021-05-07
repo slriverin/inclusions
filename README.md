@@ -59,7 +59,7 @@ The database is made of two tables:
 
 The program takes care of formatting the data and metadata properly before storing them in the database, thus reducing risks of errors. Nevertheless, it is possible for the user to modify data manually if need be (WARNING: there is no UNDO when you make a change to a database, so make sure you know what you are doing). The field headers are case sensitive when manipulated in pandas.
 
-The `meta` table consists of the following fields:
+The `meta` table consists of the following fields. Each combination of `ID_specimen` and `slice` is unique.
 
 Field |Data type |Description
 ---|---|---
@@ -74,3 +74,25 @@ r_outer |Float |Radius of the specimen (µm), for circular specimens
 n_divis_x |Integer |Number of divisions in x, or in theta if the sample is circular. Used for block maxima workflow.
 n_divis_y |Integer |Number of divisions in y. Not used for polar coordinates
 divis_area_mm2 |Float |Area of the divisions (mm2)
+
+The `data` table contains the following fields. Each combination of `ID_specimen`, `slice` and `incl_nb` is unique.
+
+Field |Data type |Description
+---|---|---
+ID_specimen |String |Unique identifier for the metallographic specimen
+slice |Integer |Sequential number used to identify successive slices of the same specimen, if repolished between 2 observations.
+incl_nb |Integer |Index of feature/inclusion
+x, y |Float |Coordinates of feature (µm)
+area |Float |Area of feature (µm^2)
+feret |Float |Feret diameter (µm^2)
+min_feret|Float|Minimum distance between 2 points on the boundary
+feret_angle|Float|Angle of 0 to 180° between feret diameter and a horizontal line (°)
+circ|Float|Circularity. A value of 1.0 for a perfect circle, and close to zero if very elongated
+round|Float|Roundness. Inverse of aspect ratio
+ar|Float|Aspect ratio. Ratio of max to min axes of an ellipse fitted to the contour of the feature
+solid|Float|Indicator of convexity. Ratio of area over convex area.
+incl_type |Categorical |Classification of the type of feature (inclusion, porosity, dust, scratch, ...)
+r |Float |Radial coordinate of feature, if sample circular (µm)
+theta |Float |Azimuthal coordinate of feature, if sample is circular (°)
+division |Integer |To which division (block) belongs the feature (for block maxima workflow)
+
