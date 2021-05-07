@@ -53,3 +53,24 @@ Solidity|Float|Indicator of convexity. Ratio of area over convex area.
 
 
 ### H5 database
+The database is made of two tables:
+* `meta` contains all the metadata from the image file. Each row of the table corresponds to a separate image file.
+* `data` lists all the data concerning each individual feature observed on all the images. The features from all the images are grouped in the same table, with fields identifying to which image they belong.
+
+The program takes care of formatting the data and metadata properly before storing them in the database, thus reducing risks of errors. Nevertheless, it is possible for the user to modify data manually if need be (WARNING: there is no UNDO when you make a change to a database, so make sure you know what you are doing). The field headers are case sensitive when manipulated in pandas.
+
+The `meta` table consists of the following fields:
+
+Field |Data type |Description
+---|---|---
+ID_specimen |String |Unique identifier for the metallographic specimen
+slice |Integer |Sequential number used to identify successive slices of the same specimen, if repolished between 2 observations.
+filename |String |Path to the image file used to obtain the data. Must be complete so the program is able to find the picture.
+img_width |Float |Width of the image file (µm)
+img_height |Float |Height of the image fileé 
+img_area_mm2 |Float |Area of image (mm^2). Initially calculated with the dimensions, but any excluded area is substracted.
+x_c, y_c |Float |Coordinates (µm) of the center of the specimen (used for circular specimens)
+r_outer |Float |Radius of the specimen (µm), for circular specimens
+n_divis_x |Integer |Number of divisions in x, or in theta if the sample is circular. Used for block maxima workflow.
+n_divis_y |Integer |Number of divisions in y. Not used for polar coordinates
+divis_area_mm2 |Float |Area of the divisions (mm2)
