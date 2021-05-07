@@ -31,6 +31,15 @@ The workflows below are being or will be developed for data analysis, and are at
 * Peak over threshold: Exponential probability plots can be drawn, but the rest of the analysis needs to be programmed.
 * Pitting analysis: An interesting application of this program is the comparison of the same sample before and after pitting. This could allow identification and counting of pits.
 
+## Example
+In the following, we will download the repository, create a database, import data from an image, post-treat the data and perform basic statistical analyses. Before so, first make sure that Python and Git are installed on your computer.
+
+To download the repository on your computer, there are several ways. With Git installed on your computer, you should have extra options when you right-click in the Windows file explorer. So first choose a convenient folder on your computer (for better performance the folder should be on your computer and not on a remote drive, because we will treat large files.) In my case, I chose the folder `Documents/Python Scripts`. 
+
+Right click in the file explorer, and select `Git GUI Here`. Click on `Clone Existing Repository`. Then in source location, enter: [https://github.com/slriverin/inclusions](https://github.com/slriverin/inclusions). In Target directory, enter the name of a new directory, for example `inclusions`, then click `Clone`. The program may ask you for your Github credentials. Once this is done, the repository will be downloaded (or "cloned") in the indicated folder. You can take a look to see that the Python file is there, and that the example data (one .csv and one .jpg files) are present in the `data` folder.
+
+Once this is done, open a IPython console (usually I type 'Anaconda Powershell Prompt' in the windows search window), then I use `cd` and `ls` commands to navigate to my folder, then I type `ipython` to open the Python console. Now you are ready to begin!!
+
 ## Data description
 The data is stored in tabular format. The following describes the fields in the tables used in this program
 
