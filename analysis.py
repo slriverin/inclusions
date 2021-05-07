@@ -501,7 +501,7 @@ def ID_incl(display=True):
     
     
     #Asks for the mode. Default value: Mode 1.
-    print('What mode? <1>: Largest ones (Area); <2>: Largest ones (Feret); <3>: Specific inclusion; <4>: By location, <5>: Review entries.')
+    print('What mode? <1>: Largest ones (Area); <2>: Largest ones (Feret); <3>: Random.')
     
     try:
         ans = input('[1]...: ')
@@ -513,98 +513,112 @@ def ID_incl(display=True):
     except ValueError:
         return
     
-    if mode == 1 or mode == 2:
-        #In mode 1 or mode 2, chooses the appropriate column on which to sort the database
-        if mode == 1:
-            colsort = 'area'
-        elif mode ==2:
-            colsort = 'feret'
-        
-        meta, data = get_data()
-        
-        ID_spec = ask_sample()
-        if ID_spec == -1:
+    #In mode 1 or mode 2, chooses the appropriate column on which to sort the database
+    if mode == 1:
+        colsort = 'area'
+    elif mode ==2:
+        colsort = 'feret'
+    
+    meta, data = get_data()
+    
+    ID_spec = ask_sample()
+    if ID_spec == -1:
+        return
+
+    slice = ask_slice(ID_spec)
+    if slice == -1:
+        return
+
+    df = data.loc[(data.ID_specimen == ID_spec) & (data.slice == slice)]
+    
+    df = df.loc[df.incl_type == '']     #Keeps only unidentified inclusions
+    
+    if mode == 3:
+        try:
+            ans = input('Minimum inclusion diameter (microns)? [10]...: ')
+            if ans == '':
+                ans = 10
+            
+            mindim = float(ans)
+            df = df.loc[df.feret > mindim]
+            df['rand'] = df.apply(lambda row: np.random.random(), axis=1)
+            colsort = 'rand'
+            
+        except:
+            print('Enter float number')
             return
     
-        slice = ask_slice(ID_spec)
-        if slice == -1:
+    if display == True:
+        filename = meta.loc[(meta.ID_specimen == ID_spec) & (meta.slice == slice)].filename.iloc[0].replace('csv', 'jpg')
+        im = Image.open(os.path.join('data', filename))
+    
+    cont = True
+    while cont == True:     #Loops until user quits
+        df = df.sort_values(by=colsort, ascending = False)  #Sort by appropriate size indicator (per mode)
+        index_incl = df.index[0]
+        
+        #Displays data on the feature to identify
+        print('For defect... :')
+        head = df.head(1)
+        print(head.loc[:, ['ID_specimen', 'slice', 'incl_nb', 'x', 'y', 'area', 'sqr_area', 'feret', 'min_feret', 'feret_angle', 'ar', 'incl_type']])
+        
+        #Displays image of inclusions
+        if display == True and head.feret.iloc[0] < 500:
+            x = head.x.iloc[0]
+            y = head.y.iloc[0]
+            feret = head.feret.iloc[0]
+            feret_min = head.min_feret.iloc[0]
+            feret_angle = head.feret_angle.iloc[0]
+            
+            width = np.max([np.abs(feret*np.cos(feret_angle*np.pi/180)), feret_min])*2
+            height = np.max([np.abs(feret*np.sin(feret_angle*np.pi/180)), feret_min])*2
+            
+            xmin = x - width/2
+            xmax = x + width/2
+            ymin = y - height/2
+            ymax = y + height/2
+            
+            imcrop = im.crop((xmin, ymin, xmax, ymax))
+            imcrop.show()
+            
+            img = imcrop.resize(size=(180, 180))
+            img_array = keras.preprocessing.image.img_to_array(img)
+            img_array = tf.expand_dims(img_array, 0)
+        
+            pred = model.predict(img_array)
+        
+            print('--\nThis image is {:.2f} percent inclusion'.format(100-100*pred[0][0]))
+            
+        #Asks user input
+        print('Please identify inclusion type')
+        print('<>: Next, leave unidentified')
+        print('<1>: Unidentified microstructural feature')
+        print('<2>: Inclusion')
+        print('<3>: Shrinkage porosity')
+        print('<4>: Scratch')
+        print('<5>: Dust')
+        print('<6>: Other artifact')
+        print('<7>: Out of bounds')
+        print('<x> or other entry: Quit')
+       
+        
+        ans=input('...: ')
+        
+        if ans in ['1', '2', '3', '4', '5', '6', '7']:
+            #User made a choice, update database
+            data.loc[index_incl, 'incl_type'] = ans
+            save_data(meta, data)
+            logger('Manual inclusion ID. Sample {:s}, slide {:d}, inclusion {:d}: Type {:s}.'.format(ID_spec, slice, df.head(1).incl_nb.iloc[0], ans))
+            df = df.iloc[1:]    #Removes the top row so we can analyse the next one
+            
+        elif ans == '':
+            #Leave unidentified, continue
+            df = df.iloc[1:]
+            
+        else:
+            #Quit
+            cont=False
             return
-
-        df = data.loc[(data.ID_specimen == ID_spec) & (data.slice == slice)]
-        
-        df = df.loc[df.incl_type == '']     #Keeps only unidentified inclusions
-        
-        if display == True:
-            filename = meta.loc[(meta.ID_specimen == ID_spec) & (meta.slice == slice)].filename.iloc[0].replace('csv', 'jpg')
-            im = Image.open(os.path.join('data', filename))
-        
-        cont = True
-        while cont == True:     #Loops until user quits
-            df = df.sort_values(by=colsort, ascending = False)  #Sort by appropriate size indicator (per mode)
-            index_incl = df.index[0]
-            
-            #Displays data on the feature to identify
-            print('For defect... :')
-            head = df.head(1)
-            print(head.loc[:, ['ID_specimen', 'slice', 'incl_nb', 'x', 'y', 'area', 'sqr_area', 'feret', 'min_feret', 'feret_angle', 'ar', 'incl_type']])
-            
-            #Displays image of inclusions
-            if display == True and head.feret.iloc[0] < 500:
-                x = head.x.iloc[0]
-                y = head.y.iloc[0]
-                feret = head.feret.iloc[0]
-                feret_min = head.min_feret.iloc[0]
-                feret_angle = head.feret_angle.iloc[0]
-                
-                width = np.max([np.abs(feret*np.cos(feret_angle*np.pi/180)), feret_min])*2
-                height = np.max([np.abs(feret*np.sin(feret_angle*np.pi/180)), feret_min])*2
-                
-                xmin = x - width/2
-                xmax = x + width/2
-                ymin = y - height/2
-                ymax = y + height/2
-                
-                imcrop = im.crop((xmin, ymin, xmax, ymax))
-                imcrop.show()
-                
-                img = imcrop.resize(size=(180, 180))
-                img_array = keras.preprocessing.image.img_to_array(img)
-                img_array = tf.expand_dims(img_array, 0)
-            
-                pred = model.predict(img_array)
-            
-                print('--\nThis image is {:.2f} percent inclusion'.format(100-100*pred[0][0]))
-                
-            #Asks user input
-            print('Please identify inclusion type')
-            print('<>: Next, leave unidentified')
-            print('<1>: Unidentified microstructural feature')
-            print('<2>: Inclusion')
-            print('<3>: Shrinkage porosity')
-            print('<4>: Scratch')
-            print('<5>: Dust')
-            print('<6>: Other artifact')
-            print('<7>: Out of bounds')
-            print('<x> or other entry: Quit')
-           
-            
-            ans=input('...: ')
-            
-            if ans in ['1', '2', '3', '4', '5', '6', '7']:
-                #User made a choice, update database
-                data.loc[index_incl, 'incl_type'] = ans
-                save_data(meta, data)
-                logger('Manual inclusion ID. Sample {:s}, slide {:d}, inclusion {:d}: Type {:s}.'.format(ID_spec, slice, df.head(1).incl_nb.iloc[0], ans))
-                df = df.iloc[1:]    #Removes the top row so we can analyse the next one
-                
-            elif ans == '':
-                #Leave unidentified, continue
-                df = df.iloc[1:]
-                
-            else:
-                #Quit
-                cont=False
-                return
 
 
 def divide():
