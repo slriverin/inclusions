@@ -61,7 +61,10 @@ Now, empty databases are loaded in the variables `meta` and `data`. You can see 
 
 Now you want to import the data from the example provided in the repository. Type `new_image()`. Then, follow the instructions. Normally, the program shows you the list of existing samples, but none of them exist, so you create one by typing '0'. You can choose any ID you like for this example. Choose slice 1 as proposed (this is the first slice of your hypothetical sample). Then, the program looks in the `data` folder for you, so you just have to type the number corresponding to the data file you want to import. Choose '1' for the file `example.csv`.
 
-To fill the metadata, I suggest you open the image in ImageJ
+To fill the metadata, I suggest you open the image in ImageJ. ImageJ tells you the dimensions of the image: 6711x17831 µm (red circle below). Be careful though. In this case, the image produced by the Keyence has a definition of 1 µm per pixel. If this is not the case, you have to calibrate the image in ImageJ before exporting the data, and keep the same calibration to enter the proper dimensions. So enter the width (6711) and the height (17831) as requested, and congratulations, you just imported your first image! The program saved it directly in the database (db_incl.h5). If you want to look at the data, you have to reimport it, by typing `meta, data = get_data()`. The database is updated, but the variables in the Python environment are not upated automatically so you have to reimport them.
+
+If you type `meta` you should see the metadata for the image you just imported. You can see that the image has an area of 119.66 mm^2. You can also type `data`, so you see that the table has 1504 rows and 18 columns. Image analysis with ImageJ has recorded 1504 particles. However, you can see that the first feature has a very large feret diameter (19 mm). In fact, ImageJ records all dark features, so the bakelite outside of the polished sample is recorded as a gigantic feature, same for the digits in the scale bar. It is important to exclude those features before performing any analysis.
+
 
 ## Data description
 The data is stored in tabular format. The following describes the fields in the tables used in this program
