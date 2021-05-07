@@ -38,7 +38,30 @@ To download the repository on your computer, there are several ways. With Git in
 
 Right click in the file explorer, and select `Git GUI Here`. Click on `Clone Existing Repository`. Then in source location, enter: [https://github.com/slriverin/inclusions](https://github.com/slriverin/inclusions). In Target directory, enter the name of a new directory, for example `inclusions`, then click `Clone`. The program may ask you for your Github credentials. Once this is done, the repository will be downloaded (or "cloned") in the indicated folder. You can take a look to see that the Python file is there, and that the example data (one .csv and one .jpg files) are present in the `data` folder.
 
-Once this is done, open a IPython console (usually I type 'Anaconda Powershell Prompt' in the windows search window), then I use `cd` and `ls` commands to navigate to my folder, then I type `ipython` to open the Python console. Now you are ready to begin!!
+![Github menu](menu.png)
+![Github window](gitwindow.png)
+
+Once this is done, open a IPython console (usually I type 'Anaconda Powershell Prompt' in the windows search window), then I use `cd` and `ls` commands to navigate to my folder. You should see something like below. Then, I type `cd inclusions` and I `ipython` to open the Python console. Now you are ready to begin!!
+
+![Ipython console](console.png)
+
+Then, as you do at the beginning of every Python session, import the libraries you are going to use:
+
+```
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+```
+
+Then, run the the program, which will put in memory all the necessary commands: `run analysis.py`. Maybe you will see warnings from Tensorflow, don't mind about that.
+
+Then, type `meta, data = get_data()`. This command is used to load the data in the database (HDFS file format) into two Pandas tables, `meta` and `data`. However, since you just downloaded the repository, the data does not exist yet, you have to create it. It should be written `Database not found... creata? ...: [n] `. The `[n]` in brackets means that the default answer is no. So if you enter anything but 'y', the program won't create the database. Type `y`.
+
+Now, empty databases are loaded in the variables `meta` and `data`. You can see their content by typing them in the prompt.
+
+Now you want to import the data from the example provided in the repository. Type `new_image()`. Then, follow the instructions. Normally, the program shows you the list of existing samples, but none of them exist, so you create one by typing '0'. You can choose any ID you like for this example. Choose slice 1 as proposed (this is the first slice of your hypothetical sample). Then, the program looks in the `data` folder for you, so you just have to type the number corresponding to the data file you want to import. Choose '1' for the file `example.csv`.
+
+To fill the metadata, I suggest you open the image in ImageJ
 
 ## Data description
 The data is stored in tabular format. The following describes the fields in the tables used in this program
