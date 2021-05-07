@@ -18,6 +18,18 @@ The data is centralized in a HDF5 database, in the file `db_incl.h5`. The databa
 
 Typically, when applying thresholding, artifacts such as scratches, dust and stains can get counted as inclusions. The best way to avoid this is to firstly use sound polishing procedure avoiding scratches and to wash the sample properly with hand soap and dry quickly just before the observation, so that the number of stains and dust particles is kept to a minimum. Since it is not possible to systematically avoir all those, the program comes with an utility to quickly filter out those artifacts. The program shows magnified views of the features to the user in rapid succession, and the user classifies them to the best of his/her know knowledge, so that the artifacts are removed from the analysis.
 
+Attemps had been made to use the classified data to train an artificial neural networks (ANN). This seems to be promising, although work remains to be done. The accuracy of the ANN has not been tested yet, and more data will need to be fed to the model. There always will be uncertainty because even a human user cannot discern dust from inclusion in some cases. More data will need to be fed to the model.
+
+Another application of ANN could be to differentiate types of inclusions automatically, which would allow separate the distributions proper to each inclusion.
+
+### Analysis workflows
+
+The workflows below are being or will be developed for data analysis, and are at different stages of maturity:
+
+* Basic analysis: the program currently has the capacity to generate automatically size statistics for inclusions, as well as kernel density plots showing the repartition of inclusions in function of size.
+* Block maxima analysis: Capabilities to separate an image file in blocks have been implemented in cartesian and polar coordinates, but analysis capabilities still need to be developed.
+* Peak over threshold: Exponential probability plots can be drawn, but the rest of the analysis needs to be programmed.
+* Pitting analysis: An interesting application of this program is the comparison of the same sample before and after pitting. This could allow identification and counting of pits.
 
 ## Data description
 
