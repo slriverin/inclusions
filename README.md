@@ -34,24 +34,6 @@ The workflows below are being or will be developed for data analysis, and are at
 ## Data description
 The data is stored in tabular format. The following describes the fields in the tables used in this program
 
-### Inclusion data files
-
-The following applies to .csv files to be imported in the database. It is important to have the right column headers (case sensitive). See [ImageJ user guide](https://imagej.nih.gov/ij/docs/guide/146-30.html#toc-Subsection-30.2) for more info on shape descriptors.
-
-Column header | Data type   | Description
---- | --- | ---
-(blank) |Integer  |Index of feature/inclusion
-X, Y  |Float  |Coordinates of feature (µm)
-Area  |Float  |Area of feature (µm^2)
-Feret |Float  |Feret diameter (longest distance between 2 points on the boundary) (µm)
-MinFeret|Float|Minimum distance between 2 points on the boundary
-FeretAngle|Float|Angle of 0 to 180° between feret diameter and a horizontal line (°)
-Circ.|Float|Circularity. A value of 1.0 for a perfect circle, and close to zero if very elongated
-AR|Float|Aspect ratio. Ratio of max to min axes of an ellipse fitted to the contour of the feature
-Round|Float|Roundness. Inverse of aspect ratio
-Solidity|Float|Indicator of convexity. Ratio of area over convex area.
-
-
 ### H5 database
 The database is made of two tables:
 * `meta` contains all the metadata from the image file. Each row of the table corresponds to a separate image file.
@@ -96,3 +78,23 @@ r |Float |Radial coordinate of feature, if sample circular (µm)
 theta |Float |Azimuthal coordinate of feature, if sample is circular (°)
 division |Integer |To which division (block) belongs the feature (for block maxima workflow)
 
+### Data logger
+
+There is no UNDO operations in a database, however a datalogger was added to this repository. Every change made to the database is automatically timestamped and logged with a text description in `db_incl.log`. If any unwanted change was to occur, it is possible to see exactly what change has been made and revert it back manually. Eventually, another option would be to playback the log file and rebuilt the database from the original data. This is not implemented yet.
+
+### Inclusion data files
+
+The following applies to .csv files to be imported in the database. It is important to have the right column headers (case sensitive). See [ImageJ user guide](https://imagej.nih.gov/ij/docs/guide/146-30.html#toc-Subsection-30.2) for more info on shape descriptors.
+
+Column header | Data type   | Description
+--- | --- | ---
+(blank) |Integer  |Index of feature/inclusion
+X, Y  |Float  |Coordinates of feature (µm)
+Area  |Float  |Area of feature (µm^2)
+Feret |Float  |Feret diameter (longest distance between 2 points on the boundary) (µm)
+MinFeret|Float|Minimum distance between 2 points on the boundary
+FeretAngle|Float|Angle of 0 to 180° between feret diameter and a horizontal line (°)
+Circ.|Float|Circularity. A value of 1.0 for a perfect circle, and close to zero if very elongated
+AR|Float|Aspect ratio. Ratio of max to min axes of an ellipse fitted to the contour of the feature
+Round|Float|Roundness. Inverse of aspect ratio
+Solidity|Float|Indicator of convexity. Ratio of area over convex area.
