@@ -67,7 +67,28 @@ To fill the metadata, I suggest you open the image in ImageJ. ImageJ tells you t
 
 If you type `meta` you should see the metadata for the image you just imported. You can see that the image has an area of 119.66 mm^2. You can also type `data`, so you see that the table has 1504 rows and 18 columns. Image analysis with ImageJ has recorded 1504 particles. However, you can see that the first feature has a very large feret diameter (19 mm). In fact, ImageJ records all dark features, so the bakelite outside of the polished sample is recorded as a gigantic feature, same for the digits in the scale bar. It is important to exclude those features before performing any analysis.
 
-The first step is to exclude areas where you know there isn't anything interesting. Type `exclude()`. Then, answer the questions to identify which sample you are working on. Then, let's say we want to exclude the top part of the picture, where the scale is and a lot of bakelite. You have to enter the coordinates of a bounding box so that the program will eliminate it. Th
+The first step is to exclude areas where you know there isn't anything interesting. Type `exclude()`. Then, answer the questions to identify which sample you are working on. Then, let's say we want to exclude the top part of the picture, where the scale is and a lot of bakelite. You have to enter the coordinates of a bounding box so that the program will eliminate it. You can use ImageJ to identify the coordinates, as below. You exclude a zone that spans the whole width (so $x_{min}=0$ and $x_{max}=6711$) and that goes from 0 to approximately 1560 in the $y$ direction. Make sure that the "invert y measurements" box is unchecked in ImageJ/Analyze/Set Measurements, so that the zero in y is at the top. Once you entered the bounding box coordinates, the program will show you the area to be removed ask you to confirm. You have to close the window before confirming.
+
+![Area to be excluded](exclude.png)
+
+We still need to exclude the left, right and bottom parts before continuing the analysis. You can do it the same way as the one above. It is OK if some useful area is removed. However, be careful that the excluded areas don't overlap each other, because the program does not verify if it is the case, and the area of each is substracted from the surface area in the `meta` table. If you exclude twice the same area, the area is substracted twice. This could be improved in future versions. A graphical user interface would also facilitate this step.
+
+Once you are done, you can type `print_stats`. This will show stats per sample (if there are more than one slice), and also some stats about inclusion density. You can also explore the statistical functions. For example, type:
+
+```
+fig = dens_vs_size()
+fig.show()
+```
+
+You should see something like this, which is a kernel density plot of the distribution of feret diameters of inclusions.
+
+![KD of feret diameter](figtest.png)
+
+Finally, you can give a shot at classifying features. Type `ID_incl`. Enter the informations about the sample and choose Mode 1. The program will show you inclusions in decreasing order of size. Note that it will not show a feature larger than 500 µm, because it takes long time to load. In the case of this sample, it shows the whole bakelite as a single continuous feature. You have an idea about that with the Feret diameter which corresponds to the diagonal of the full picture.  It didn't exclude this feature from the analysis because its center of gravity was not in one of the excluded zones. So in the classification, type '7' as out of bounds. This feature will not be included in the analysis. Then, the program will show pictures of inclusions, which you observe, close the picture and classify. The program will ask you to classify features until you are bored. Usually, I classify maybe the 50 or 100 larger ones and I consider that the rest are not artifacts. You can stop before if your sample is very clean and you don't see a lot of artifacts. Of course, it will take some time for your eye to train.
+
+Below you see an example of a picture that is clearly an inclusion. In that case, you would type '2' for inclusion. Note also that it is mentioned: "This image is 99.71 percent inclusion". This is the evaluation of the ANN, that is 99.71 percent sure it is an inclusion. It seems great, but it doesn't always work, and this inclusion was in the training dataset, so it already "knows" about it. The ANN should be tested against new data so we can know about its efficienty.
+
+![Example of classification](classify.png)
 
 
 ## Data description
