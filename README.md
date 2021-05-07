@@ -31,7 +31,7 @@ The workflows below are being or will be developed for data analysis, and are at
 * Peak over threshold: Exponential probability plots can be drawn, but the rest of the analysis needs to be programmed.
 * Pitting analysis: An interesting application of this program is the comparison of the same sample before and after pitting. This could allow identification and counting of pits.
 
-## Example
+## Getting started: Example
 In the following, we will download the repository, create a database, import data from an image, post-treat the data and perform basic statistical analyses. Before so, first make sure that Python and Git are installed on your computer.
 
 To download the repository on your computer, there are several ways. With Git installed on your computer, you should have extra options when you right-click in the Windows file explorer. So first choose a convenient folder on your computer (for better performance the folder should be on your computer and not on a remote drive, because we will treat large files.) In my case, I chose the folder `Documents/Python Scripts`. 
@@ -63,7 +63,11 @@ Now you want to import the data from the example provided in the repository. Typ
 
 To fill the metadata, I suggest you open the image in ImageJ. ImageJ tells you the dimensions of the image: 6711x17831 µm (red circle below). Be careful though. In this case, the image produced by the Keyence has a definition of 1 µm per pixel. If this is not the case, you have to calibrate the image in ImageJ before exporting the data, and keep the same calibration to enter the proper dimensions. So enter the width (6711) and the height (17831) as requested, and congratulations, you just imported your first image! The program saved it directly in the database (db_incl.h5). If you want to look at the data, you have to reimport it, by typing `meta, data = get_data()`. The database is updated, but the variables in the Python environment are not upated automatically so you have to reimport them.
 
+![Image with dimensions](dims.png)
+
 If you type `meta` you should see the metadata for the image you just imported. You can see that the image has an area of 119.66 mm^2. You can also type `data`, so you see that the table has 1504 rows and 18 columns. Image analysis with ImageJ has recorded 1504 particles. However, you can see that the first feature has a very large feret diameter (19 mm). In fact, ImageJ records all dark features, so the bakelite outside of the polished sample is recorded as a gigantic feature, same for the digits in the scale bar. It is important to exclude those features before performing any analysis.
+
+The first step is to exclude areas where you know there isn't anything interesting. Type `exclude()`. Then, answer the questions to identify which sample you are working on. Then, let's say we want to exclude the top part of the picture, where the scale is and a lot of bakelite. You have to enter the coordinates of a bounding box so that the program will eliminate it. Th
 
 
 ## Data description
