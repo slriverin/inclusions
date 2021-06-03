@@ -714,7 +714,8 @@ def print_stats():
 
     Returns
     -------
-    Nothing
+        samp:   List of samples with number of slices analyzed and total area
+        stats:  List of slices, with area, inclusions per mm2 and total inclusion area
 
     """
     meta, data = get_data()
@@ -725,18 +726,20 @@ def print_stats():
             print('{:s}\t{:d}\t\t{:.1f}'.format(index, int(row.slice), 
                                               row.img_area_mm2))
     print('\nStats per image file')
-    df1 = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]\
+    samp = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]\
         .groupby(['ID_specimen', 'slice'])\
-        .agg({'incl_nb': 'count', 'feret': 'max'})
+        .agg({'incl_nb': 'count', 'feret': 'max', 'area': 'sum'})
 
-    df2 = meta.merge(df1, on=['ID_specimen', 'slice'])
-    df2=df2.sort_values(['ID_specimen', 'slice'])
+    stats = meta.merge(samp, on=['ID_specimen', 'slice'])
+    stats=stats.sort_values(['ID_specimen', 'slice'])
     
     print('Spec.\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tFilename')
-    for index, row in df2.iterrows():
+    for index, row in stats.iterrows():
         print('{:s}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:s}'.format(
             row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
             row.incl_nb/row.img_area_mm2, row.filename))
+            
+    return samp, stats
 
 def plot_prob(df, plot=False):
     df = df.loc[:, ['feret']].sort_values('feret').reset_index(drop=True)
