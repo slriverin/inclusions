@@ -3,9 +3,16 @@
 #Commonly used libraries
 import pandas as pd
 import numpy as np
+from scipy.stats import gaussian_kde
 import matplotlib.pyplot as plt
 import math
 import os, sys
+import datetime
+from PIL import Image
+Image.MAX_IMAGE_PIXELS = 1e9
+
+import tensorflow as tf
+from tensorflow import keras
 
 #Configuration of Matplotlib grahps to use LaTeX formatting with siunitx library
 from matplotlib.ticker import FormatStrFormatter
@@ -53,6 +60,7 @@ def get_data():
         if ans == 'y':
             meta.to_hdf('db_incl.h5', 'meta')
             data.to_hdf('db_incl.h5', 'data')
+            logger('Created database.')
             
     return meta, data
 
@@ -110,6 +118,9 @@ def save_data(meta, data):
     except:
         print('Error writing data. Verify datasets.')
 
+def logger(text):
+    with open('db_incl.log', 'a+') as file:
+        file.write('{:s}:\t{:s}\n'.format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), text))
 
 #Data entry functions for interacting with user.
 def new_image():
@@ -137,60 +148,14 @@ def new_image():
 
     """
     
-    #Asks the user for the specimen ID. 
-    #The user is asked to choose from a list of existing specimens
-    print('Which specimen ID? Enter sequential number. <0> for new specimen.')
-    print('Other entry does nothing.')
-    print('Seq. nb\tID_specimen')
-    
-    #Lists the existing specimens
     meta, data = get_data()
-    specs = meta.ID_specimen.unique()
-    for i in range(len(specs)):
-        print('{:d}\t{:s}'.format(i+1, specs[i]))
-        
-    try:
-        ans = input('...: [0] ')
-        
-        #Default answer: New specimen
-        if ans == '':
-            i_spec = 0
-        else:
-            i_spec = int(ans)
-        
-        if i_spec == 0:
-            #New specimen
-            ID_spec = input('New sample ID? ...: ')
-            if ID_spec == '':
-                print('Invalid name')
-                return
-                
-        elif i_spec > len(specs):
-            #Invalid entry
-            print('No such sample')
-            return 
-            
-        else:
-            #Existing specimen
-            ID_spec = specs[i_spec-1]
-            
-    except ValueError:
-        #Invalid entry
+    
+    ID_spec = ask_sample(create=True)
+    if ID_spec == -1:
         return
-
-    try:
-        #Asks for the slice number. By default, adds a new slide.
-        slice_def = len(meta.loc[meta.ID_specimen==ID_spec, 'slice'])+1
-        ans = input('Which slice? ...: [{:d}] '.format(slice_def))
-        
-        #Default answer
-        if ans == '':
-            slice = slice_def
-        else:
-            slice = int(ans)
-            
-    except ValueError:
-        print('Must enter integer')
+    
+    slice = ask_slice(ID_spec, create = True)
+    if slice == -1:
         return
     
     #Asks user for the filename
@@ -199,7 +164,7 @@ def new_image():
     #Lists .csv files from which to choose
     print('Seq. nb\tID_specimen')
     list_csv = []
-    for file in os.listdir():
+    for file in os.listdir('data'):
         if file[-3:] == 'csv':
             list_csv.append(file)
     for i in range(len(list_csv)):
@@ -239,10 +204,11 @@ def new_image():
     except ValueError:
         print('Numerical value needed')
         return
-    
+
+    df_data = pd.read_csv(os.path.join('data', filename))         #Extracts data from .csv file    
+
+      
     try:
-        df_data = pd.read_csv(filename)         #Extracts data from .csv file
-        
         #Changes row header names
         df_data = df_data.rename(columns={' ': 'incl_nb', 'X': 'x', 'Y': 'y',
                     'Area': 'area', 'Feret': 'feret', 'MinFeret': 'min_feret',
@@ -254,8 +220,11 @@ def new_image():
         df_data['ID_specimen'] = ID_spec                    #Identifies specimen
         df_data['slice'] = slice                            #Identifies slice
         df_data['incl_type'] = ''                           #Leaves inclusion type unidentified
+        df_data['r'] = np.nan
+        df_data['theta'] = np.nan
+        df_data['division'] = 0
         df_data = df_data.loc[:, fields_data]               #Sets the headers properly
-        
+    
     except (KeyError, AttributeError):
         #Exits if any error in the format of the .csv file.
         print('Error reading .csv file')
@@ -265,12 +234,89 @@ def new_image():
     data = pd.concat([data, df_data])                                       #Updates the data
     
     meta = meta.loc[(meta.ID_specimen != ID_spec)|(meta.slice != slice)]    #Removes any existing metadata on the current specimen and slice
-    meta = meta.append({'ID_specimen': ID_spec, 'slice': slice, 
-                        'filename': filename, 'img_width': img_width,
-                        'img_height': img_height, 'img_area_mm2': img_area}, 
+    meta = meta.append({'ID_specimen': ID_spec, 'slice': slice, 'filename': filename, 'img_width': img_width, 'img_height': img_height, 
+                        'img_area_mm2': img_area, 'x_c': np.nan, 'y_c': np.nan, 'r_outer': np.nan, 'n_divis_x': 0, 'n_divis_y': 0, 'divis_area_mm2': np.nan}, 
                        ignore_index=True)                                   #Adds a row with the newly input metadata
  
     save_data(meta, data)   #Updates the database
+    logger('Imported new image: Sample {:s}, slice {:d}: {:s}; Dims=({:.3f}, {:.3f}) mm. Area {:.2f} mm2.'\
+        .format(ID_spec, slice, filename, img_width/1000, img_height/1000, img_area))
+        
+def remove_image(ID_specimen, slice=1):
+    meta, data = get_data()
+
+    n_pts = len(data.loc[(data.ID_specimen == ID_specimen)&(data.slice == slice)])
+    
+    meta = meta.loc[(meta.ID_specimen != ID_specimen)|(meta.slice != slice)]   
+    data = data.loc[(data.ID_specimen != ID_specimen)|(data.slice != slice)]
+    
+    ans = input('Remove 1 record in meta and {:d} in data? (y/n) ... : [n] '.format(n_pts))
+    
+    if ans == 'y':
+        save_data(meta, data)
+        logger('Removed slice {:d} of specimen {:s}.'.format(slice, ID_specimen))
+
+def exclude():
+    """
+    Excludes a rectangular zone from the analysis.
+    Removes all the features contained in this rectangle from Data
+    Removes the corresponding area from the metadata.
+    
+    Parameters
+    ----------
+    None
+
+    Returns
+    -------
+    Nothing
+
+    """    
+
+    meta, data = get_data()
+    
+    ID_spec = ask_sample()
+    if ID_spec == -1:
+        return
+    
+    slice = ask_slice(ID_spec)
+    if slice == -1:
+        return
+
+    print('Enter bounding rectangle')
+    try:
+        xmin = float(input('x_min (microns) ... : '))
+        xmax = float(input('x_max (microns) ... : '))
+        ymin = float(input('y_min (microns) ... : '))
+        ymax = float(input('y_max (microns) ... : '))
+        
+        if xmax < xmin or ymax < ymin:
+            raise ValueError
+     
+    except ValueError:
+        print('Invalid entry')
+        return
+    
+    area = (xmax-xmin)*(ymax-ymin)
+    
+    filename = meta.loc[(meta.ID_specimen == ID_spec) & (meta.slice == slice)].filename.iloc[0].replace('csv', 'jpg')
+    im = Image.open(os.path.join('data', filename))
+    im.crop((xmin, ymin, xmax, ymax)).show()
+    ans=input('Confirm exlusion? (y/n) ... : [n] ')
+    if ans == 'y':
+        pass
+    else:
+        return
+    
+    df = data.loc[(data.ID_specimen==ID_spec)&(data.slice==slice), data.columns]
+    
+    drop_list = df.loc[(df.x > xmin)&(df.x < xmax)&(df.y > ymin)&(df.y < ymax)].index
+    
+    data.drop(drop_list, inplace=True)
+    meta.loc[(meta.ID_specimen==ID_spec)&(meta.slice==slice), 'img_area_mm2'] -= area/1e6
+    
+    save_data(meta, data)
+    logger('Excluded area in sample {:s}, slice {:d}: x in [{:.3f}, {:.3f}] mm, y in [{:.3f}, {:.3f}] mm. Area removed {:.2f} mm2.'\
+        .format(ID_spec, slice, xmin/1000, xmax/1000, ymin/1000, ymax/1000, area/1e6))
 
 
 def def_pol_coord():
@@ -298,50 +344,17 @@ def def_pol_coord():
 
     """
     
-    #Asks for the specimen number
-    print('Which specimen ID? Enter sequential number. <0> for new specimen.')
-    print('Other entry does nothing.')
-    
-    #Lists the specimens with circular cross-section.
-    print('Seq. nb\tID_specimen')
     meta, data = get_data()
-    specs = meta.loc[meta.img_width.apply(lambda x: int(x))==0].ID_specimen.unique()    #Condition img_width = 0: circular specimen
     
-    for i in range(len(specs)):
-        print('{:d}\t{:s}'.format(i+1, specs[i]))
-    try:
-        ans = input('...: [0] ')
-        if ans == '':
-            i_spec = 0
-        else:
-            i_spec = int(ans)
-            
-        if i_spec == 0 or i_spec > len(specs):
-            print('No such sample')
-            return 
-        else:
-            ID_spec = specs[i_spec-1]
-    except ValueError:
+    ID_spec = ask_sample()
+    if ID_spec == -1:
+        return
+    
+    slice = ask_slice(ID_spec)
+    if slice == -1:
         return
 
-    try:
-        #Asks the slice number from the existing ones.
-        slice_def = len(meta.loc[meta.ID_specimen==ID_spec, 'slice'])
-        ans = input('\nWhich slice? ...: [1-{:d}] '.format(slice_def))
-        
-        if ans == '':
-            raise ValueError
-        else:
-            slice = int(ans)
-            
-    except ValueError:
-        print('Must enter integer')
-        return
-        
-    if slice > slice_def or slice == 0:
-        print('No such slice')
-        return
-        
+       
     #Extracts existing metadata and data for the specified specimen and slice
     ser_meta = meta.loc[(meta.ID_specimen==ID_spec)&(meta.slice==slice)].iloc[0]
     df = data.loc[(data.ID_specimen==ID_spec)&(data.slice==slice), data.columns]
@@ -446,7 +459,7 @@ def def_pol_coord():
         save_data(meta, data)
 
        
-def ID_incl():
+def ID_incl(display=True):
     """
     Assists user in visually identifying inclusions.
     
@@ -461,18 +474,18 @@ def ID_incl():
     
     Inclusion types (field <incl_type>)
     ---------------
-        '1':    Spherical inclusion or void
-        '2':    Irregular inclusion
-        '3':    Lack of fusion
+        '1':    Unidentified microstructural feature
+        '2':    Inclusion
+        '3':    Shrinkage porosity
         '4':    Scratch
         '5':    Dust
-        '6':    Unknown or other artifact
+        '6':    Other artifact
         '7':    Out of bounds
         '':     Empty field: not identified yet
 
     Parameters
     ----------
-    None
+    display:    If TRUE, displays the inclusion to be classified
 
     Returns
     -------
@@ -480,8 +493,15 @@ def ID_incl():
 
     """
     
+    with open('model_incl_01.json', 'r') as json_file:
+        model_json = json_file.read()
+    
+    model = keras.models.model_from_json(model_json)
+    model.load_weights('model_incl_01.h5')
+    
+    
     #Asks for the mode. Default value: Mode 1.
-    print('What mode? <1>: Largest ones (Area); <2>: Largest ones (Feret); <3>: Specific inclusion; <4>: By location, <5>: Review entries.')
+    print('What mode? <1>: Largest ones (Area); <2>: Largest ones (Feret); <3>: Random.')
     
     try:
         ans = input('[1]...: ')
@@ -493,90 +513,112 @@ def ID_incl():
     except ValueError:
         return
     
-    if mode == 1 or mode == 2:
-        #In mode 1 or mode 2, chooses the appropriate column on which to sort the database
-        if mode == 1:
-            colsort = 'area'
-        elif mode ==2:
-            colsort = 'feret'
-        
-        #Asks specimen number
-        print('Which specimen ID? Enter sequential number. <0> for all specimens. ')
-        print('Seq. nb\tID_specimen\tNb. of slices')
-        meta, data = get_data()
-        specs = meta.ID_specimen.unique()
-        for i in range(len(specs)):
-            print('{:d}\t\t{:s}\t\t{:d}'.format(i+1, specs[i], data.loc[data.ID_specimen==specs[i]].slice.max()))
-            
+    #In mode 1 or mode 2, chooses the appropriate column on which to sort the database
+    if mode == 1:
+        colsort = 'area'
+    elif mode ==2:
+        colsort = 'feret'
+    
+    meta, data = get_data()
+    
+    ID_spec = ask_sample()
+    if ID_spec == -1:
+        return
+
+    slice = ask_slice(ID_spec)
+    if slice == -1:
+        return
+
+    df = data.loc[(data.ID_specimen == ID_spec) & (data.slice == slice)]
+    
+    df = df.loc[df.incl_type == '']     #Keeps only unidentified inclusions
+    
+    if mode == 3:
         try:
-            i_spec = int(input('...: '))
-                
-            if i_spec == 0:
-                #All specimens
-                ID_spec = -1
-            elif i_spec > len(specs):
-                print('No such sample')
-                return 
-            else:
-                ID_spec = specs[i_spec-1]
-        except ValueError:
+            ans = input('Minimum inclusion diameter (microns)? [10]...: ')
+            if ans == '':
+                ans = 10
+            
+            mindim = float(ans)
+            df = df.loc[df.feret > mindim]
+            df['rand'] = df.apply(lambda row: np.random.random(), axis=1)
+            colsort = 'rand'
+            
+        except:
+            print('Enter float number')
             return
     
-        try:
-            #Asks for slice
-            ans = input('Which slice? <0> for all slices...: ')
-            slice = int(ans)
-                
-        except ValueError:
-            print('Must enter integer')
+    if display == True:
+        filename = meta.loc[(meta.ID_specimen == ID_spec) & (meta.slice == slice)].filename.iloc[0].replace('csv', 'jpg')
+        im = Image.open(os.path.join('data', filename))
+    
+    cont = True
+    while cont == True:     #Loops until user quits
+        df = df.sort_values(by=colsort, ascending = False)  #Sort by appropriate size indicator (per mode)
+        index_incl = df.index[0]
+        
+        #Displays data on the feature to identify
+        print('For defect... :')
+        head = df.head(1)
+        print(head.loc[:, ['ID_specimen', 'slice', 'incl_nb', 'x', 'y', 'area', 'sqr_area', 'feret', 'min_feret', 'feret_angle', 'ar', 'incl_type']])
+        
+        #Displays image of inclusions
+        if display == True and head.feret.iloc[0] < 500:
+            x = head.x.iloc[0]
+            y = head.y.iloc[0]
+            feret = head.feret.iloc[0]
+            feret_min = head.min_feret.iloc[0]
+            feret_angle = head.feret_angle.iloc[0]
+            
+            width = np.max([np.abs(feret*np.cos(feret_angle*np.pi/180)), feret_min])*2
+            height = np.max([np.abs(feret*np.sin(feret_angle*np.pi/180)), feret_min])*2
+            
+            xmin = x - width/2
+            xmax = x + width/2
+            ymin = y - height/2
+            ymax = y + height/2
+            
+            imcrop = im.crop((xmin, ymin, xmax, ymax))
+            imcrop.show()
+            
+            img = imcrop.resize(size=(180, 180))
+            img_array = keras.preprocessing.image.img_to_array(img)
+            img_array = tf.expand_dims(img_array, 0)
+        
+            pred = model.predict(img_array)
+        
+            print('--\nThis image is {:.2f} percent inclusion'.format(100-100*pred[0][0]))
+            
+        #Asks user input
+        print('Please identify inclusion type')
+        print('<>: Next, leave unidentified')
+        print('<1>: Unidentified microstructural feature')
+        print('<2>: Inclusion')
+        print('<3>: Shrinkage porosity')
+        print('<4>: Scratch')
+        print('<5>: Dust')
+        print('<6>: Other artifact')
+        print('<7>: Out of bounds')
+        print('<x> or other entry: Quit')
+       
+        
+        ans=input('...: ')
+        
+        if ans in ['1', '2', '3', '4', '5', '6', '7']:
+            #User made a choice, update database
+            data.loc[index_incl, 'incl_type'] = ans
+            save_data(meta, data)
+            logger('Manual inclusion ID. Sample {:s}, slide {:d}, inclusion {:d}: Type {:s}.'.format(ID_spec, slice, df.head(1).incl_nb.iloc[0], ans))
+            df = df.iloc[1:]    #Removes the top row so we can analyse the next one
+            
+        elif ans == '':
+            #Leave unidentified, continue
+            df = df.iloc[1:]
+            
+        else:
+            #Quit
+            cont=False
             return
-            
-        #Creates df, the reduced dataset
-        if ID_spec == -1:   #All specimens
-            df = data
-        elif slice == 0:    #All slices
-            df = data.loc[data.ID_specimen == ID_spec]
-        else:               #Specific specimen and slice
-            df = data.loc[(data.ID_specimen == ID_spec) & (data.slice == slice)]
-        
-        df = df.loc[df.incl_type == '']     #Keeps only indidentified inclusions
-        
-        cont = True
-        while cont == True:     #Loops until user quits
-            df = df.sort_values(by=colsort, ascending = False)  #Sort by appropriate size indicator (per mode)
-            index_incl = df.index[0]
-            
-            #Displays data on the feature to identify
-            print('For defect... :')
-            print(df.head(1))
-            
-            #Asks user input
-            print('Please identify inclusion type')
-            print('<>: Next, leave unidentified')
-            print('<1>: Inclusion (spherical) or spherical void')
-            print('<2>: Inclusion (irregular)')
-            print('<3>: Lack of fusion')
-            print('<4>: Scratch')
-            print('<5>: Dust')
-            print('<6>: Unknown or other artifact')
-            print('<7>: Out of bounds')
-            print('<x> or other entry: Quit')
-            ans=input('...: ')
-            
-            if ans in ['1', '2', '3', '4', '5', '6', '7']:
-                #User made a choice, update database
-                data.loc[index_incl, 'incl_type'] = ans
-                save_data(meta, data)
-                df = df.iloc[1:]    #Removes the top row so we can analyse the next one
-                
-            elif ans == '':
-                #Leave unidentified, continue
-                df = df.iloc[1:]
-                
-            else:
-                #Quit
-                cont=False
-                return
 
 
 def divide():
@@ -694,7 +736,7 @@ def divide():
         
 
 #Analysis tools
-def print_stats():
+def print_stats(ret=False, exclude_porosity = True):
     """
     Displays stats per specimen and slice.
     
@@ -726,20 +768,174 @@ def print_stats():
             print('{:s}\t{:d}\t\t{:.1f}'.format(index, int(row.slice), 
                                               row.img_area_mm2))
     print('\nStats per image file')
-    samp = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]\
+
+    if exclude_porosity == True:
+        list_excl = ['3', '4', '5', '6', '7']
+    else:
+        list_excl = ['4', '5', '6', '7']
+    
+    df1 = data.loc[data.incl_type.apply(lambda x: x not in list_excl)]\
         .groupby(['ID_specimen', 'slice'])\
         .agg({'incl_nb': 'count', 'feret': 'max', 'area': 'sum'})
 
     stats = meta.merge(samp, on=['ID_specimen', 'slice'])
     stats=stats.sort_values(['ID_specimen', 'slice'])
     
-    print('Spec.\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tFilename')
-    for index, row in stats.iterrows():
-        print('{:s}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:s}'.format(
+
+    print('Spec.\t\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tIncl. area fraction x1e3\tFilename')
+    for index, row in df2.iterrows():
+        print('{:<12}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:.2f}\t\t\t\t{:s}'.format(
             row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
-            row.incl_nb/row.img_area_mm2, row.filename))
+            row.incl_nb/row.img_area_mm2, row.area/row.img_area_mm2/1e3,row.filename))
             
-    return samp, stats
+    if ret==True:
+        return df2
+    
+def export_stats(filename = 'stats.xlsx', samples = None):
+    df = print_stats(True)\
+        .loc[:, ['ID_specimen', 'filename', 'img_area_mm2', 'incl_nb', 'area']]\
+        .sort_index()
+    
+    if samples != None:
+        df = df.loc[df.ID_specimen.apply(lambda x: x in samples)]
+        
+    df.area = df.area/1e6
+    df = df.rename(columns={'area': 'total_incl_area_mm2'})
+    
+    df['incl_per_mm2'] = df.incl_nb/df.img_area_mm2
+    df['incl_area_fract'] = df.total_incl_area_mm2/df.img_area_mm2
+    
+    df.to_excel(filename, index=False)
+
+def dens_per_sample(samples = None, exclude_porosity = True):
+    
+    meta, data = get_data()
+    
+    if samples == None:
+        pass
+        
+    else:
+        data = data.loc[data.ID_specimen.apply(lambda x: x in samples)]
+        meta = meta.loc[meta.ID_specimen.apply(lambda x: x in samples)]
+    
+    data = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    if exclude_porosity == True:
+        data = data.loc[data.incl_type.apply(lambda x: x != '3')]
+    
+    meta = meta.merge(data.groupby(['ID_specimen']).agg({'incl_nb': 'count', 'area': 'sum'}),\
+                        left_on='ID_specimen', right_index=True)#.set_index('ID_specimen')
+                        
+
+    #x = np.arange(len(meta.ID_specimen.unique()))
+    y1 = meta.incl_nb/meta.img_area_mm2
+    y2 = meta.area/meta.img_area_mm2/1e3
+
+    
+    fig = plt.figure(dpi=200)
+    ax = fig.gca()
+    ax2 = ax.twinx()
+   
+    y1.plot(kind='bar', ax = ax, width = 0.4, position = 1, color = 'blue')
+    ax.bar([], [], fillcolor = 'red')
+    y2.plot(kind='bar', ax = ax2, width = 0.4, position = 0, color = 'red')
+    ax.set_xticklabels(meta.ID_specimen)
+    ax.set_ylabel('Inclusion density (\si{\per\milli\metre\squared})')
+    ax2.set_ylabel(r'Inclusion area density ($\times 10^3$ \si{\milli\metre\per\milli\metre})')
+    ax.set_xlim([-0.5, len(meta)-0.5])
+    
+    colors = {'Inclusion count': 'blue', 'Inclusion area': 'red'}
+    labels = list(colors.keys())
+    handles = [plt.Rectangle((0,0), 1, 1, color = colors[label]) for label in labels]
+    ax.legend(handles, labels, loc= 'upper center', bbox_to_anchor=(0.5, 1.15), ncol=2)
+    
+    plt.gcf().subplots_adjust(bottom=0.30)
+    
+    return fig
+
+def get_dens(sample, param = 'feret', exclude_porosity = True, xlim = [0, 100], cov_fact = 0.18, weighted = False):
+    meta, data = get_data()
+    
+    data = data.loc[data.ID_specimen == sample]
+    meta = meta.loc[meta.ID_specimen == sample]
+    
+    data = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    if exclude_porosity == True:
+        data = data.loc[data.incl_type.apply(lambda x: x != '3')]
+        
+    data = data.merge(meta.loc[:, ['ID_specimen', 'img_area_mm2']], on='ID_specimen')
+    
+    meta = meta.merge(data.groupby('ID_specimen')['incl_nb'].agg('count'),\
+                    left_on='ID_specimen', right_index=True)
+    
+    x = np.linspace(xlim[0], xlim[1], 1000)    
+
+    if weighted == False:        
+        density = gaussian_kde(np.log10(data[param]))
+        density.covariance_factor = lambda: cov_fact
+        density._compute_covariance()
+        y = density(np.log10(x))*meta.incl_nb.iloc[0]/meta.img_area_mm2.iloc[0]
+    else:
+        density = gaussian_kde(np.log10(data[param]), weights = data.area)
+        density.covariance_factor = lambda: 0.18
+        density._compute_covariance()
+        y = density(np.log10(x))*data.area.sum()/meta.img_area_mm2.iloc[0]
+    
+    return x, y
+    
+def dens_vs_size(samples = None, xlim = [0, 100], param='feret', exclude_porosity = True, weighted = False):
+
+    meta, data = get_data()
+    
+    if samples == None:
+        pass
+        
+    else:
+        data = data.loc[data.ID_specimen.apply(lambda x: x in samples)]
+        meta = meta.loc[meta.ID_specimen.apply(lambda x: x in samples)]
+        
+    data = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    if exclude_porosity == True:
+        data = data.loc[data.incl_type.apply(lambda x: x != '3')]
+    
+    data = data.merge(meta.loc[:, ['ID_specimen', 'img_area_mm2']], on='ID_specimen')
+    
+    meta = meta.merge(data.groupby('ID_specimen')['incl_nb'].agg('count'),\
+                    left_on='ID_specimen', right_index=True)
+    
+    x = np.linspace(data[param].min(), xlim[1], 1000)
+    
+    fig = plt.figure(dpi=200)
+    ax = fig.gca()
+    for index, row in meta.iterrows():
+        ID_spec = row.ID_specimen
+        df = data.loc[data.ID_specimen == ID_spec]
+        
+        if weighted == False:
+            density = gaussian_kde(np.log10(df[param]))
+            density.covariance_factor = lambda: 0.18
+            density._compute_covariance()
+            ax.semilogx(x, density(np.log10(x))*row.incl_nb/row.img_area_mm2, label = ID_spec)
+        else:
+            density = gaussian_kde(np.log10(df[param]), weights = df.area)
+            density.covariance_factor = lambda: 0.18
+            density._compute_covariance()
+            ax.semilogx(x, density(np.log10(x))*df.area.sum()/row.img_area_mm2, label = ID_spec)
+        
+    if param == 'feret':
+        ax.set_xlabel('Feret diameter (\si{\micro\metre})')
+    elif param == 'sqr_area':
+        ax.set_xlabel('Sqr. root area $\sqrt{A}$ (\si{\micro\metre})')       
+        
+    if weighted == False:
+        ax.set_ylabel('Inclusion count density (\si{\per\micro\metre\per\milli\metre\squared})')
+    else:
+        ax.set_ylabel('Inclusion area density (\si{\per\micro\metre \micro\metre\squared\per\milli\metre\squared})')
+    ax.set_xlim(xlim)
+    ax.legend()
+    
+    return fig
+
+
 
 def plot_prob(df, plot=False):
     df = df.loc[:, ['feret']].sort_values('feret').reset_index(drop=True)
@@ -826,25 +1022,66 @@ def plot_morph(rem_artifacts = True, x = 'feret', y = 'sqr_area', xlabel = 'Fere
     
 
 def plot_dist():
+
+    meta, data = get_data()
+
+        
     bins = 10**np.linspace(0, 3, 31)
     x = 10**(np.linspace(0, 3, 31)[:-1]+0.05)
-    meta['area_mm2'] = meta.proc_img_width_um*meta.proc_img_height_um/1e6
-    A_BD, A_PD = meta.groupby('dir')['area_mm2'].agg('sum')
-    y_BD1 = plt.hist(BD1.Feret, bins=bins)[0]/(A_BD/2)
-    y_BD2 = plt.hist(BD2.Feret, bins=bins)[0]/(A_BD/2)
-    y_PD1 = plt.hist(PD1.Feret, bins=bins)[0]/(A_PD/2)
-    y_PD2 = plt.hist(PD2.Feret, bins=bins)[0]/(A_PD/2)
+
+    fig = plt.figure(dpi=200)
+    ax = fig.gca()
+
+    #y1 = plt.hist(data.feret, bins=bins)[0]
+    ax.hist(data.loc[(data.incl_type=='5')&(data.feret<100)].feret)[0]
+
+
+    #ax.loglog(x, y1, marker='.', label = 'Total')
+    #ax.hist(x, y2, marker='.', label = 'Dust')
+
+    ax.set_xlabel('Feret diameter, (\si{\micro\metre})')
+    ax.set_ylabel('Count')
+    ax.legend()
+    return fig
+    
+def plot_qod(df=0):
+    """
+    Estimates the quality of the data histogram of ratio of artifacts on total observations.
+
+    Parameters
+    ----------
+    Y : Vector of values on which to perform regression. Need not to be ordered.
+    k : Size of the sample. Scalar or vector.
+
+    Returns
+    -------
+    sigma_k : MLE estimate of distribution parameter. Returns scalar or vector
+              depending of k.
+
+    """    
+    
+    if df == 0:
+        meta, data = get_data()
+    else:
+        data = df
+   
+    
+    bins = 10**np.linspace(0, 3, 31)
     
     fig = plt.figure(dpi=200)
     ax = fig.gca()
-    ax.semilogx(x, y_BD1, label = 'BD, slice 1', marker='.')
-    ax.semilogx(x, y_BD2, label = 'BD, slice 2', marker='.')
-    ax.semilogx(x, y_PD1, label = 'PD, slice 1', marker='.')
-    ax.semilogx(x, y_PD2, label = 'PD, slice 2', marker='.')
-    ax.set_xlabel('Feret diameter, (\si{\micro\metre})')
-    ax.set_ylabel('Density, \si{\per\milli\metre\squared}')
+    
+    df_ok = data.loc[data.incl_type.apply(lambda x: x not in ['4', '5', '6', '7'])]
+    df_notok = data.loc[data.incl_type.apply(lambda x: x in ['4', '5', '6'])]
+    
+    plt.hist([df_ok.feret, df_notok.feret], bins, stacked=True, log=True, color = ['blue', 'gray'], label = ['OK or unknown', 'Artifacts'])
+    
+    ax.set_xlabel('Feret diameter (\si{micro\metre})')
+    ax.set_ylabel('Density')
     ax.legend()
     return fig
+    
+
 
 def MLE_sig_exp(Y, k):
     """
@@ -885,6 +1122,85 @@ def MLE_sig_exp(Y, k):
     
     
 #Utilities    
+def ask_sample(create = False, circ=False):
+    #Asks for the specimen number
+    print('Which specimen ID? Enter sequential number.')
+    if create==True:
+        print('<0>: New specimen')
+    print('Other entry does nothing.')
+    
+    #Lists the specimens with circular cross-section.
+    print('Seq. nb\tID_specimen')
+    meta, data = get_data()
+    if circ==True:
+        specs = meta.loc[meta.img_width.apply(lambda x: int(x))==0].ID_specimen.unique()    #Condition img_width = 0: circular specimen
+    else:
+        specs = meta.ID_specimen.unique()
+    
+    for i in range(len(specs)):
+        print('{:d}\t{:s}'.format(i+1, specs[i]))
+    try:
+        ans = input('...: [0] ')
+        if ans == '':
+            i_spec = 0
+        else:
+            i_spec = int(ans)
+            
+        if create==True:
+            if i_spec == 0:
+                #New specimen
+                ID_spec = input('New sample ID? ...: ')
+                if ID_spec == '':
+                    print('Invalid name')
+                    return -1
+                    
+                return ID_spec
+        else:
+            if i_spec == 0:
+                print('No such sample')
+                return -1           
+                
+        if i_spec > len(specs):
+            print('No such sample')
+            return -1
+        else:
+            return specs[i_spec-1]
+            
+    except ValueError:
+        return -1
+
+def ask_slice(ID_spec, create=False):
+    
+    meta, data = get_data()
+
+    try:
+        #Asks for the slice number. By default, adds a new slide.
+        slice_def = len(meta.loc[meta.ID_specimen==ID_spec, 'slice'])
+        if create==True:
+            slice_def += 1
+            
+        ans = input('\nWhich slice? [1-{:d}] ... : [{:d}] '.format(len(meta.loc[meta.ID_specimen==ID_spec, 'slice']), slice_def))
+        
+        #Default answer
+        if ans == '':
+            slice = slice_def
+        else:
+            slice = int(ans)
+     
+        if slice > slice_def:
+            print('No such slice')
+            return -1
+            
+        elif slice == 0 and create==False:
+            print('No such slice')
+            return -1
+            
+        return slice
+        
+    except ValueError:
+        print('Must enter integer')
+        return -1    
+
 def ret_th(x, y, x_c, y_c):
     """
     Returns the azimut of polar coordinates, given cartesian coordinates relative to the origin.
