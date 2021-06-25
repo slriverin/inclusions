@@ -774,7 +774,7 @@ def print_stats(ret=False, exclude_porosity = True):
     else:
         list_excl = ['4', '5', '6', '7']
     
-    df1 = data.loc[data.incl_type.apply(lambda x: x not in list_excl)]\
+    samp = data.loc[data.incl_type.apply(lambda x: x not in list_excl)]\
         .groupby(['ID_specimen', 'slice'])\
         .agg({'incl_nb': 'count', 'feret': 'max', 'area': 'sum'})
 
@@ -783,13 +783,13 @@ def print_stats(ret=False, exclude_porosity = True):
     
 
     print('Spec.\t\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tIncl. area fraction x1e3\tFilename')
-    for index, row in df2.iterrows():
+    for index, row in stats.iterrows():
         print('{:<12}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:.2f}\t\t\t\t{:s}'.format(
             row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
             row.incl_nb/row.img_area_mm2, row.area/row.img_area_mm2/1e3,row.filename))
             
     if ret==True:
-        return df2
+        return stats
     
 def export_stats(filename = 'stats.xlsx', samples = None):
     df = print_stats(True)\
