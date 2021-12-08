@@ -782,11 +782,11 @@ def print_stats(ret=False, exclude_porosity = True):
     stats=stats.sort_values(['ID_specimen', 'slice'])
     
 
-    print('Spec.\t\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tIncl. area fraction x1e3\tFilename')
+    print('Spec.\t\tSlice\tArea (mm^2)\tNb. incl.\tIncl. per mm^2\tIncl. area dens um2/mm2\tFilename')
     for index, row in stats.iterrows():
         print('{:<12}\t{:d}\t{:.2f}\t\t{:d}\t\t{:.2f}\t\t{:.2f}\t\t\t\t{:s}'.format(
             row.ID_specimen, row.slice, row.img_area_mm2, row.incl_nb, 
-            row.incl_nb/row.img_area_mm2, row.area/row.img_area_mm2/1e3,row.filename))
+            row.incl_nb/row.img_area_mm2, row.area/row.img_area_mm2,row.filename))
             
     if ret==True:
         return stats
@@ -882,10 +882,10 @@ def get_dens(sample, param = 'feret', exclude_porosity = True, xlim = [0, 100], 
     
     return x, y
     
-def dens_vs_size(samples = None, xlim = [0, 100], param='feret', exclude_porosity = True, weighted = False):
+def dens_vs_size(samples = None, xlim = [0, 100], param='feret', exclude_porosity = True, weighted = False, log = True, factor=0.18, agg=False):
 
     meta, data = get_data()
-    
+       
     if samples == None:
         pass
         
@@ -899,27 +899,56 @@ def dens_vs_size(samples = None, xlim = [0, 100], param='feret', exclude_porosit
     
     data = data.merge(meta.loc[:, ['ID_specimen', 'img_area_mm2']], on='ID_specimen')
     
-    meta = meta.merge(data.groupby('ID_specimen')['incl_nb'].agg('count'),\
-                    left_on='ID_specimen', right_index=True)
+    
+    meta = meta.merge(data.groupby(['ID_specimen', 'slice'])['incl_nb'].agg('count'),\
+                    left_on=['ID_specimen', 'slice'], right_index=True)
+                    
+    if agg == True:
+        meta = meta.groupby('ID_specimen')['img_area_mm2', 'incl_nb'].agg('sum').reset_index()
+        meta['slice']=0
     
     x = np.linspace(data[param].min(), xlim[1], 1000)
     
     fig = plt.figure(dpi=200)
     ax = fig.gca()
+    Y = []
     for index, row in meta.iterrows():
         ID_spec = row.ID_specimen
-        df = data.loc[data.ID_specimen == ID_spec]
-        
-        if weighted == False:
-            density = gaussian_kde(np.log10(df[param]))
-            density.covariance_factor = lambda: 0.18
-            density._compute_covariance()
-            ax.semilogx(x, density(np.log10(x))*row.incl_nb/row.img_area_mm2, label = ID_spec)
+        if agg == False:
+            df = data.loc[(data.ID_specimen == ID_spec)&(data.slice==row.slice)]
         else:
-            density = gaussian_kde(np.log10(df[param]), weights = df.area)
-            density.covariance_factor = lambda: 0.18
-            density._compute_covariance()
-            ax.semilogx(x, density(np.log10(x))*df.area.sum()/row.img_area_mm2, label = ID_spec)
+            df = data.loc[data.ID_specimen == ID_spec]
+        
+        if log == True:
+            if weighted == False:
+                density = gaussian_kde(np.log10(df[param]))
+                density.covariance_factor = lambda: factor
+                density._compute_covariance
+                y = density(np.log10(x))*row.incl_nb/row.img_area_mm2
+                Y.append(y)
+                ax.semilogx(x, y, label = ID_spec.replace('_', '\_')+'.{:d}'.format(row.slice))
+            else:
+                density = gaussian_kde(np.log10(df[param]), weights = df.area)
+                density.covariance_factor = lambda: factor
+                density._compute_covariance()
+                y = density(np.log10(x))*df.area.sum()/row.img_area_mm2
+                Y.append(y)
+                ax.semilogx(x, y, label = ID_spec.replace('_', '\_')+'.{:d}'.format(row.slice))
+        else:
+            if weighted == False:
+                density = gaussian_kde(df[param])
+                density.covariance_factor = lambda: factor
+                density._compute_covariance()
+                y = density(x)*row.incl_nb/row.img_area_mm2
+                Y.append(y)
+                ax.plot(x, y, label = ID_spec.replace('_', '\_')+'.{:d}'.format(row.slice))
+            else:
+                density = gaussian_kde(df[param], weights = df.area)
+                density.covariance_factor = lambda: factor
+                density._compute_covariance()
+                y = density(x)*df.area.sum()/row.img_area_mm2
+                Y.append(y)
+                ax.plot(x, y, label = ID_spec.replace('_', '\_')+'.{:d}'.format(row.slice))
         
     if param == 'feret':
         ax.set_xlabel('Feret diameter (\si{\micro\metre})')
@@ -933,7 +962,7 @@ def dens_vs_size(samples = None, xlim = [0, 100], param='feret', exclude_porosit
     ax.set_xlim(xlim)
     ax.legend()
     
-    return fig
+    return fig, x, Y
 
 
 
